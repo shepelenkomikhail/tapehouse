@@ -41,6 +41,8 @@ export const api = {
   getGroup: (chatId: string) => request<GroupLibrary>(`/api/group?chat=${encodeURIComponent(chatId)}`),
   groupOp: (chatId: string, op: PlaylistOp) =>
     request<GroupLibrary>(`/api/group?chat=${encodeURIComponent(chatId)}`, { method: "POST", body: op }),
+  report: (event: string, detail: string, client: Record<string, string | number | boolean | null>) =>
+    request<{ ok: boolean }>("/api/log", { method: "POST", body: { event, detail: detail.slice(0, 2000), client } }),
   sendToChat: (title: string, tracks: Track[]) =>
     request<{ sent: number }>("/api/send", {
       method: "POST",

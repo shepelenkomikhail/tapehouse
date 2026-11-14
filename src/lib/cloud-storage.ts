@@ -242,6 +242,30 @@ function enqueue(name: string) {
   return tracked;
 }
 
+/**
+ * Diagnostic: tries a tiny write/read/delete directly against CloudStorage (no queue, no retry)
+ * and reports what happened at each step.
+ */
+export async function cloudSelfTest(): Promise<string> {
+  const webApp = getWebApp();
+  if (!webApp || !hasCloudStorage()) {
+    return "cloudstorage-unavailable";
+  }
+  const storage = webApp.CloudStorage;
+  const step = <T,>(label: string, call: (cb: (error: string | null, result?: T) => void) => void) =>
+    callOnce<T>(label, call).then(
+      (result) => `${label}=ok(${JSON.stringify(result)?.slice(0, 40)})`,
+      (error: unknown) => `${label}=FAIL(${error instanceof Error ? error.message : String(error)})`,
+    );
+  const results = [
+    await step<boolean>("set", (cb) => storage.setItem("diag", "тест-1", cb)),
+    await step<Record<string, string>>("get", (cb) => storage.getItems(["diag"], cb)),
+    await step<string[]>("keys", (cb) => storage.getKeys(cb)),
+    await step<boolean>("remove", (cb) => storage.removeItems(["diag"], cb)),
+  ];
+  return results.join(" ");
+}
+
 /** Documents we know don't exist yet (e.g. a just-created playlist) skip the header lookup. */
 export function markNewDoc(name: string) {
   if (!headers.has(name)) {
@@ -250,7 +274,7 @@ export function markNewDoc(name: string) {
 }
 
 /** Small standalone settings (e.g. UI language) that live outside the document scheme. */
-export const SETTING_KEYS = ["lang"] as const;
+export const SETTING_KEYS = ["lang", "diag"] as const;
 export async function loadSetting(key: (typeof SETTING_KEYS)[number]) {
   return (await kv.get([key]))[key] || null;
 }

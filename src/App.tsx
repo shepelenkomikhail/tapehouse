@@ -8,7 +8,7 @@ import { PlaylistScreen } from "./components/PlaylistScreen";
 import { Sheet, SheetButton } from "./components/Sheet";
 import { sameRef, usePlayer, type PlaylistRef } from "./hooks/usePlayer";
 import { api, ApiError } from "./lib/api";
-import { isSyncedStorage } from "./lib/cloud-storage";
+import { cloudSelfTest, isSyncedStorage } from "./lib/cloud-storage";
 import { DEFAULT_INBOX_DESCRIPTIONS, DEFAULT_INBOX_TITLES, errorMessage, useI18n } from "./lib/i18n";
 import { loadLibrary, mergeInbox, persistLibrary, type PersonalLibrary } from "./lib/library";
 import { confirmAction, getStartParam, getWebApp, haptic, initTelegram, openBotChat } from "./lib/telegram";
@@ -77,9 +77,15 @@ export default function App() {
       libraryRef.current = next;
       setLibrary(next);
       if (previous) {
-        persistLibrary(previous, next).catch((error) =>
-          notify(tRef.current("toast.cloudSaveFailed", { detail: errorText(error) }), true),
-        );
+        persistLibrary(previous, next).catch((error) => {
+          notify(tRef.current("toast.cloudSaveFailed", { detail: errorText(error) }), true);
+          void api
+            .report("persist", error instanceof Error ? error.message : String(error), {
+              version: getWebApp()?.version ?? null,
+              platform: getWebApp()?.platform ?? null,
+            })
+            .catch(() => undefined);
+        });
       }
     },
     [notify, errorText],
@@ -202,9 +208,11 @@ export default function App() {
         const previous = libraryRef.current!;
         libraryRef.current = merged.library;
         setLibrary(merged.library);
+        let step = "persist";
         try {
           // Only clear the server inbox once the tracks are safely in CloudStorage.
           await persistLibrary(previous, merged.library);
+          step = "ack";
           await api.ackInbox(inbox.map((track) => track.id));
           if (merged.added > 0) {
             notify(tRef.current("toast.newTracks", { count: countRef.current(merged.added, "unit.newTrack") }));
@@ -212,6 +220,18 @@ export default function App() {
         } catch (error) {
           console.error("Inbox save failed", error);
           notify(tRef.current("toast.inboxSaveFailed", { detail: errorText(error) }), true);
+          // Send the exact failure to the server log so it can be diagnosed.
+          const webApp = getWebApp();
+          const selfTest = step === "persist" ? await cloudSelfTest().catch((e) => String(e)) : "skipped";
+          void api
+            .report(`inbox-${step}`, error instanceof Error ? `${error.name}: ${error.message}` : String(error), {
+              version: webApp?.version ?? null,
+              platform: webApp?.platform ?? null,
+              tracks: inbox.length,
+              playlists: previous.playlists.length,
+              selfTest,
+            })
+            .catch(() => undefined);
         }
       }
 
