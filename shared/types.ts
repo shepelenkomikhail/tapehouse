@@ -47,6 +47,8 @@ export interface InboxResponse {
   user: SessionUser;
   botUsername?: string;
   inbox: Track[];
+  /** Groups/channels with shared playlists that this user is a member of. */
+  sharedChats: { chatId: string; title: string }[];
 }
 
 /** Operations accepted by POST /api/group. Personal playlists use the same ops client-side. */

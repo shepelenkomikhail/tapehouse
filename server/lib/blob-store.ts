@@ -1,4 +1,4 @@
-import { BlobPreconditionFailedError, del, get, put } from "@vercel/blob";
+import { BlobPreconditionFailedError, del, get, list, put } from "@vercel/blob";
 import type { GroupLibrary, Track } from "../../shared/types.js";
 import { getEnv } from "./env.js";
 
@@ -15,7 +15,7 @@ import { getEnv } from "./env.js";
 
 const MAX_ATTEMPTS = 5;
 
-function path(kind: "inbox" | "groups", id: string | number) {
+function path(kind: "inbox" | "groups" | "index", id: string | number) {
   return `${getEnv().dataPrefix}/${kind}/${id}.json`;
 }
 
@@ -26,7 +26,10 @@ async function readDoc<T>(pathname: string): Promise<{ data: T; etag: string } |
     return null;
   }
   const text = await new Response(result.stream).text();
-  return { data: JSON.parse(text) as T, etag: result.blob.etag };
+  // Reads can return a weak ETag (W/"…", e.g. when the response was compressed). Conditional
+  // writes compare strong ETags, so a weak one never matches and every write fails. The hash
+  // inside is the same, so strip the W/ marker.
+  return { data: JSON.parse(text) as T, etag: result.blob.etag.replace(/^W\//, "") };
 }
 
 function isConflict(error: unknown) {
@@ -118,11 +121,65 @@ export async function mutateGroup<R>(
   chatTitle: string | undefined,
   mutate: (current: GroupLibrary) => { next: GroupLibrary; result: R },
 ) {
-  return mutateDoc<GroupLibrary, R>(path("groups", chatId), (current) => {
+  let created = false;
+  let title = chatTitle;
+  const result = await mutateDoc<GroupLibrary, R>(path("groups", chatId), (current) => {
+    created = current === null;
     // Copy, never mutate `current`: mutateDoc compares old vs new to skip no-op writes.
     const base: GroupLibrary = current
       ? { ...current, title: chatTitle ?? current.title }
       : { chatId, title: chatTitle ?? "Group", playlists: [] };
+    title = base.title;
     return mutate(base);
   });
+  if (created) {
+    await registerSharedChat(chatId, title ?? "Group");
+  }
+  return result;
+}
+
+// ---------- Index of chats that have shared playlists ----------
+// Lets the Mini App show a user's groups/channels without them having to link each one.
+
+export interface SharedChat {
+  chatId: string;
+  title: string;
+}
+
+interface ChatIndex {
+  chats: SharedChat[];
+}
+
+async function registerSharedChat(chatId: string, title: string) {
+  await mutateDoc<ChatIndex, void>(path("index", "chats"), (current) => {
+    const chats = current?.chats ?? [];
+    if (chats.some((chat) => chat.chatId === chatId)) {
+      return { next: current, result: undefined };
+    }
+    return { next: { chats: [...chats, { chatId, title }] }, result: undefined };
+  });
+}
+
+/** All chats with shared playlists. Built once from a listing if the index doesn't exist yet. */
+export async function listSharedChats(): Promise<SharedChat[]> {
+  const existing = await readDoc<ChatIndex>(path("index", "chats"));
+  if (existing) {
+    return existing.data.chats;
+  }
+
+  const prefix = `${getEnv().dataPrefix}/groups/`;
+  const { blobs } = await list({ prefix, limit: 1000 });
+  const chats: SharedChat[] = [];
+  for (const blob of blobs) {
+    const chatId = blob.pathname.slice(prefix.length).replace(/\.json$/, "");
+    const group = await readGroup(chatId);
+    if (group) {
+      chats.push({ chatId, title: group.title });
+    }
+  }
+  await mutateDoc<ChatIndex, void>(path("index", "chats"), (current) => ({
+    next: current ?? { chats },
+    result: undefined,
+  }));
+  return chats;
 }

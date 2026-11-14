@@ -18,6 +18,8 @@ export interface PersonalLibrary {
   playlists: Playlist[];
   inboxId: string | null;
   groups: KnownGroup[];
+  /** Chats the user hid; auto-discovery won't add them back. */
+  hiddenGroups: string[];
 }
 
 interface LibDoc {
@@ -25,6 +27,7 @@ interface LibDoc {
   inboxId: string | null;
   playlists: Omit<Playlist, "tracks">[];
   groups: KnownGroup[];
+  hiddenGroups?: string[];
 }
 
 /** [id, title, performer, durationSec, fileId, fileUniqueId, sig, isDocument, addedAt] */
@@ -51,7 +54,7 @@ const docName = (playlistId: string) => `pl_${playlistId}`;
 export async function loadLibrary(): Promise<PersonalLibrary> {
   const { lib } = await loadDocs<LibDoc>(["lib"]);
   if (!lib) {
-    return { playlists: [], inboxId: null, groups: [] };
+    return { playlists: [], inboxId: null, groups: [], hiddenGroups: [] };
   }
 
   const names = lib.playlists.map((playlist) => docName(playlist.id));
@@ -62,7 +65,7 @@ export async function loadLibrary(): Promise<PersonalLibrary> {
   }));
 
   void collectGarbage(["lib", ...names]).catch(() => undefined);
-  return { playlists, inboxId: lib.inboxId, groups: lib.groups ?? [] };
+  return { playlists, inboxId: lib.inboxId, groups: lib.groups ?? [], hiddenGroups: lib.hiddenGroups ?? [] };
 }
 
 /**
@@ -91,6 +94,7 @@ export async function persistLibrary(previous: PersonalLibrary, next: PersonalLi
     inboxId: next.inboxId,
     playlists: next.playlists.map(({ tracks: _tracks, ...meta }) => meta),
     groups: next.groups,
+    hiddenGroups: next.hiddenGroups,
   };
   writes.push(saveDoc("lib", lib));
   await Promise.all(writes);

@@ -185,10 +185,12 @@ export default function App() {
       setLibrary(lib);
 
       let inbox: Track[] = [];
+      let sharedChats: { chatId: string; title: string }[] = [];
       try {
         const response = await api.getInbox();
         setSession({ user: response.user, botUsername: response.botUsername });
         inbox = response.inbox;
+        sharedChats = response.sharedChats ?? [];
       } catch (error) {
         setFatal(
           error instanceof ApiError && error.status === 401
@@ -235,9 +237,20 @@ export default function App() {
         }
       }
 
-      const known = libraryRef.current?.groups ?? [];
       const startParam = getStartParam();
       const startGroup = startParam?.match(/^g(-?\d+)$/)?.[1];
+
+      // Groups/channels with shared playlists that you're a member of appear automatically.
+      if (libraryRef.current) {
+        const current = libraryRef.current;
+        const knownIds = new Set(current.groups.map((group) => group.chatId));
+        const hidden = new Set(current.hiddenGroups.filter((chatId) => chatId !== startGroup));
+        const discovered = sharedChats.filter((chat) => !knownIds.has(chat.chatId) && !hidden.has(chat.chatId));
+        if (discovered.length > 0 || hidden.size !== current.hiddenGroups.length) {
+          commitPersonal({ ...current, groups: [...current.groups, ...discovered], hiddenGroups: [...hidden] });
+        }
+      }
+      const known = libraryRef.current?.groups ?? [];
 
       for (const group of known) {
         if (group.chatId !== startGroup) {
@@ -392,6 +405,7 @@ export default function App() {
       commitPersonal({
         ...libraryRef.current,
         groups: libraryRef.current.groups.filter((group) => group.chatId !== chatId),
+        hiddenGroups: [...new Set([...libraryRef.current.hiddenGroups, chatId])],
       });
     }
   };
