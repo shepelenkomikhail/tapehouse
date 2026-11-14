@@ -49,6 +49,15 @@ export default route(["POST"], async (request) => {
     throw new HttpError(403, "Only admins of this chat can import its history.", "not_admin");
   }
 
+  // A chat with "restrict saving content" can't be forwarded from at all. Check once up front:
+  // individual service posts (e.g. "channel created") also can't be forwarded and are just skipped.
+  if (body.data.from === 1) {
+    const chat = await callTelegram<{ has_protected_content?: boolean }>("getChat", { chat_id: chatId });
+    if (chat.has_protected_content) {
+      throw new HttpError(400, "This chat doesn't allow forwarding, so its history can't be imported.", "protected");
+    }
+  }
+
   const group = await readGroup(chatId);
   const last = group?.lastMessageId;
   const started = Date.now();
@@ -78,10 +87,7 @@ export default route(["POST"], async (request) => {
       if (error instanceof TelegramApiError && error.errorCode === 403) {
         throw new HttpError(403, "Start a private chat with the bot first, then try again.", "start_bot");
       }
-      if (error instanceof TelegramApiError && /can't be forwarded|protected/i.test(error.message)) {
-        throw new HttpError(400, "This chat doesn't allow forwarding, so its history can't be imported.", "protected");
-      }
-      // Deleted posts, service messages, gaps in numbering: just skip.
+      // Deleted posts, service messages ("can't be forwarded"), gaps in numbering: just skip.
       misses += 1;
       id += 1;
       continue;
@@ -101,7 +107,8 @@ export default route(["POST"], async (request) => {
   let addedCount = 0;
   if (found.length > 0) {
     const chatTitle = membership.title ?? group?.title;
-    const result = await addToShared({ id: Number(chatId), type: "channel", title: chatTitle }, found, "history");
+    const type = membership.type === "channel" ? "channel" : "supergroup";
+    const result = await addToShared({ id: Number(chatId), type, title: chatTitle }, found, "history");
     addedCount = result.addedCount;
   }
 

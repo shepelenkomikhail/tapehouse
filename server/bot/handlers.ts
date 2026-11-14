@@ -54,10 +54,19 @@ export interface TelegramMessage {
   };
 }
 
+interface ChatMemberUpdate {
+  chat: TelegramChat;
+  from: TelegramUser;
+  old_chat_member: { status: string };
+  new_chat_member: { status: string; user: TelegramUser };
+}
+
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
   channel_post?: TelegramMessage;
+  /** The bot's own membership changed (added to / removed from a chat, promoted to admin…). */
+  my_chat_member?: ChatMemberUpdate;
 }
 
 // ---------- Texts (Russian by default, English for English-language Telegram users) ----------
@@ -91,6 +100,10 @@ const TEXT = {
       `• Ответьте /inbox@${bot}, чтобы сохранить трек в свои «Входящие».\n` +
       `• /playlists@${bot} пришлёт кнопку для открытия плейлистов группы.`,
     sharedFound: (title: string) => `Вот общие плейлисты «${title}»:`,
+    addedToChat: (title: string) =>
+      `Я добавлен в «${title}». Новые треки оттуда будут попадать в общий плейлист автоматически.\n\n` +
+      "Чтобы добавить и всю музыку, опубликованную раньше, нажмите кнопку ниже и запустите импорт.",
+    importButton: "Импортировать старую музыку",
     notMember: (title: string) =>
       `Плейлисты «${title}» доступны только участникам. Если это ваш канал, добавьте меня туда администратором.`,
   },
@@ -120,6 +133,10 @@ const TEXT = {
       `• Reply /inbox@${bot} to save a track to your own Inbox.\n` +
       `• /playlists@${bot} posts a button that opens the group's playlists.`,
     sharedFound: (title: string) => `Here are the shared playlists of “${title}”:`,
+    addedToChat: (title: string) =>
+      `I've been added to “${title}”. New tracks posted there will go into its shared playlist automatically.\n\n` +
+      "To also add all the music posted earlier, tap the button below and start the import.",
+    importButton: "Import older music",
     notMember: (title: string) =>
       `Only members can open “${title}” playlists. If it's your channel, add me there as an admin.`,
   },
@@ -279,7 +296,8 @@ async function saveToInbox(message: TelegramMessage, track: Track) {
 
 /** Adds a track to the first shared playlist of a group or channel (creating it if needed). */
 /**
- * Adds tracks to the first shared playlist of a group or channel (creating it if needed).
+ * Adds tracks to the chat's main playlist: the one the bot fills. If it was deleted (or never
+ * existed), a new one named after the chat is created, so users' own playlists are never used.
  * "append" is for new posts; "history" places older posts in posting order.
  */
 export async function addToShared(
@@ -289,19 +307,30 @@ export async function addToShared(
 ) {
   const chatId = String(chat.id);
   return mutateGroup(chatId, chat.title, (group) => {
-    const playlists =
-      group.playlists.length > 0
-        ? [...group.playlists]
-        : [createPlaylist(chat.type === "channel" && chat.title ? chat.title : "Shared queue")];
-    const target =
-      mode === "history" ? insertChronologically(playlists[0], tracks) : appendUniqueTracks(playlists[0], tracks);
+    const playlists = [...group.playlists];
+    let index = playlists.findIndex((playlist) => playlist.id === group.mainPlaylistId);
+    if (index < 0 && !group.mainPlaylistId && chat.type !== "channel" && playlists.length > 0) {
+      index = 0; // groups created before mainPlaylistId existed keep using their first playlist
+    }
+    if (index < 0) {
+      const name = chat.type === "channel" ? (chat.title ?? group.title) : "Shared queue";
+      playlists.unshift(createPlaylist(name || "Shared queue", "", playlists.length));
+      index = 0;
+    }
+    const main = playlists[index];
+    const target = mode === "history" ? insertChronologically(main, tracks) : appendUniqueTracks(main, tracks);
     if (target.addedCount > 0) {
-      playlists[0] = { ...target.playlist, updatedAt: new Date().toISOString() };
+      playlists[index] = { ...target.playlist, updatedAt: new Date().toISOString() };
     }
     const highest = Math.max(group.lastMessageId ?? 0, ...tracks.map((track) => track.sourceMessageId ?? 0));
     return {
-      next: { ...group, playlists, ...(highest > 0 ? { lastMessageId: highest } : {}) },
-      result: { title: playlists[0].title, added: target.addedCount > 0, addedCount: target.addedCount },
+      next: {
+        ...group,
+        playlists,
+        mainPlaylistId: main.id,
+        ...(highest > 0 ? { lastMessageId: highest } : {}),
+      },
+      result: { title: main.title, added: target.addedCount > 0, addedCount: target.addedCount },
     };
   });
 }
@@ -310,6 +339,42 @@ async function saveToGroup(message: TelegramMessage, track: Track) {
   const t = TEXT[langOf(message.from)];
   const { title, added } = await addToShared(message.chat, [track]);
   await reply(message, added ? t.addedGroup(track.title, title) : t.alreadyGroup(track.title, title));
+}
+
+const ACTIVE = new Set(["administrator", "member", "creator"]);
+
+/**
+ * When someone adds the bot to a channel or group (or makes it admin), set up the chat's shared
+ * playlist and message that person privately with a button that opens the history import.
+ */
+async function handleBotMembership(update: ChatMemberUpdate) {
+  const { chat, from } = update;
+  if (chat.type === "private") {
+    return;
+  }
+  const wasActive = ACTIVE.has(update.old_chat_member.status);
+  const isActive = ACTIVE.has(update.new_chat_member.status);
+  const becameAdmin =
+    update.new_chat_member.status === "administrator" && update.old_chat_member.status !== "administrator";
+  if (!isActive || (wasActive && !becameAdmin)) {
+    return;
+  }
+
+  // Creates the chat's document (and lists it for members) even before any track is posted.
+  await mutateGroup(String(chat.id), chat.title, (group) => ({ next: group, result: undefined }));
+
+  if (from.is_bot) {
+    return;
+  }
+  const t = TEXT[langOf(from)];
+  const param = `i${chat.id}`; // opens the app on this chat with the import ready to start
+  await callTelegram("sendMessage", {
+    chat_id: from.id,
+    text: t.addedToChat(chat.title ?? ""),
+    reply_markup: {
+      inline_keyboard: [[{ text: t.importButton, web_app: { url: buildMiniAppUrl({ startapp: param }) } }]],
+    },
+  }).catch(() => undefined); // they may never have started a chat with the bot
 }
 
 async function handleChannelPost(post: TelegramMessage) {
@@ -324,6 +389,10 @@ async function handleChannelPost(post: TelegramMessage) {
 export async function handleTelegramUpdate(update: TelegramUpdate) {
   if (update.channel_post) {
     await handleChannelPost(update.channel_post);
+    return;
+  }
+  if (update.my_chat_member) {
+    await handleBotMembership(update.my_chat_member);
     return;
   }
 

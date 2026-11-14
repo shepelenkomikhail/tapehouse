@@ -40,8 +40,9 @@ const ru = {
   "home.sharedTitle": "Группы и каналы",
   "home.sharedHint":
     "Добавьте {bot} администратором в группу или канал.\n• Канал: каждый аудиофайл, который вы публикуете, автоматически попадает в общий плейлист, и канал появится здесь. Старые треки перешлите боту из канала.\n• Группа: ответьте на трек командой /save@{botName}, бот пришлёт кнопку для открытия плейлистов.",
-  "home.groupEmpty": "Общих плейлистов пока нет. Опубликуйте трек в канале или ответьте /save@{botName} на трек в группе.",
+  "home.groupEmpty": "Общих плейлистов пока нет. Опубликуйте трек в канале, импортируйте старую музыку или ответьте /save@{botName} на трек в группе.",
   "home.howToAdd": "Как подключить группу или канал",
+  "home.importChat": "Импортировать всю музыку",
   "home.nowPlaying": "Сейчас играет",
   "home.language": "Язык",
   "inbox.title": "Входящие",
@@ -147,8 +148,9 @@ const en: Record<Key, string> = {
   "home.sharedTitle": "Groups & channels",
   "home.sharedHint":
     "Add {bot} as an admin to a group or channel.\n• Channel: every audio you post goes into its shared playlist automatically, and the channel shows up here. Forward older tracks from the channel to the bot.\n• Group: reply /save@{botName} to a track and the bot posts a button that opens the playlists.",
-  "home.groupEmpty": "No shared playlists yet. Post a track in the channel, or reply /save@{botName} to a track in the group.",
+  "home.groupEmpty": "No shared playlists yet. Post a track in the channel, import older music, or reply /save@{botName} to a track in the group.",
   "home.howToAdd": "How to connect a group or channel",
+  "home.importChat": "Import all music",
   "home.nowPlaying": "Now playing",
   "home.language": "Language",
   "inbox.title": "Inbox",

@@ -25,6 +25,7 @@ interface HomeProps {
   onOpen: (ref: PlaylistRef) => void;
   onCreate: (target: { kind: "personal" } | { kind: "group"; chatId: string }, title: string) => void;
   onOpenBot: () => void;
+  onImport: (chatId: string) => void;
 }
 
 function PlaylistItem({
@@ -213,6 +214,9 @@ export function Home(props: HomeProps) {
                   })}
                 </ul>
               )}
+              <button className="add-button" type="button" onClick={() => props.onImport(group.chatId)}>
+                <Icon name="inbox" size={18} /> {t("home.importChat")}
+              </button>
               <NewPlaylistForm onCreate={(title) => onCreate({ kind: "group", chatId: group.chatId }, title)} />
             </>
           ) : null}

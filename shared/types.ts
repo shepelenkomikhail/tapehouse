@@ -40,6 +40,8 @@ export interface GroupLibrary {
   playlists: Playlist[];
   /** Highest post number the bot has seen in this chat; the end point for history imports. */
   lastMessageId?: number;
+  /** The playlist the bot fills with posted/imported tracks. Recreated if it gets deleted. */
+  mainPlaylistId?: string;
 }
 
 export interface SessionUser {

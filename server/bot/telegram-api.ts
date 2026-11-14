@@ -33,7 +33,7 @@ export async function callTelegram<T>(method: string, payload: unknown): Promise
 
 // Function instances are reused between requests, so small in-memory caches cut Telegram calls.
 const fileCache = new Map<string, { url: string; size?: number; path: string; expires: number }>();
-const memberCache = new Map<string, { ok: boolean; admin: boolean; title?: string; expires: number }>();
+const memberCache = new Map<string, { ok: boolean; admin: boolean; title?: string; type?: string; expires: number }>();
 let botUsernameCache: string | undefined;
 
 /** Resolves a file_id to a download URL. Fails for files over 20 MB (Bot API limit). */
@@ -72,6 +72,7 @@ export async function checkChatMember(chatId: string, userId: number) {
   let ok = false;
   let admin = false;
   let title: string | undefined;
+  let type: string | undefined;
   try {
     const member = await callTelegram<{ status: string; is_member?: boolean }>("getChatMember", {
       chat_id: chatId,
@@ -82,15 +83,16 @@ export async function checkChatMember(chatId: string, userId: number) {
       (member.status === "restricted" && member.is_member === true);
     admin = member.status === "creator" || member.status === "administrator";
     if (ok) {
-      const chat = await callTelegram<{ title?: string }>("getChat", { chat_id: chatId });
+      const chat = await callTelegram<{ title?: string; type?: string }>("getChat", { chat_id: chatId });
       title = chat.title;
+      type = chat.type;
     }
   } catch {
     ok = false; // bot not in chat, chat gone, etc.
   }
 
   // Short negative cache so adding the bot / joining takes effect quickly.
-  const entry = { ok, admin, title, expires: Date.now() + (ok ? 5 * 60 * 1000 : 20 * 1000) };
+  const entry = { ok, admin, title, type, expires: Date.now() + (ok ? 5 * 60 * 1000 : 20 * 1000) };
   memberCache.set(key, entry);
   return entry;
 }

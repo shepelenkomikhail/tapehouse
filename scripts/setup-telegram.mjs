@@ -33,7 +33,7 @@ const me = await telegram("getMe");
 await telegram("setWebhook", {
   url: `${appUrl}/api/telegram-webhook`,
   secret_token: secret,
-  allowed_updates: ["message", "channel_post"],
+  allowed_updates: ["message", "channel_post", "my_chat_member"],
   // One update at a time keeps inbox/group writes ordered.
   max_connections: 1,
 });

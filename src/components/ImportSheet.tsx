@@ -9,12 +9,14 @@ interface ImportSheetProps {
   onClose: () => void;
   /** Called after each batch that added tracks, so the playlist refreshes as it fills. */
   onProgress: () => void;
+  /** Called once when the import reaches the end. */
+  onDone?: () => void;
 }
 
 type Status = "idle" | "running" | "done" | "stopped" | "error";
 
 /** Drives /api/import batch by batch, showing progress. Closing the sheet stops it. */
-export function ImportSheet({ chatId, chatTitle, onClose, onProgress }: ImportSheetProps) {
+export function ImportSheet({ chatId, chatTitle, onClose, onProgress, onDone }: ImportSheetProps) {
   const { t } = useI18n();
   const [status, setStatus] = useState<Status>("idle");
   const [scanned, setScanned] = useState(0);
@@ -50,7 +52,7 @@ export function ImportSheet({ chatId, chatTitle, onClose, onProgress }: ImportSh
         missesRef.current = batch.misses;
         if (batch.done) {
           setStatus("done");
-          onProgress();
+          onDone?.();
           return;
         }
         if (batch.retryAfter > 0) {

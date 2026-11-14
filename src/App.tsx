@@ -253,7 +253,10 @@ export default function App() {
       }
 
       const startParam = getStartParam();
-      const startGroup = startParam?.match(/^g(-?\d+)$/)?.[1];
+      // g<chatId> opens a chat's playlists; i<chatId> (from the "bot added" message) also opens the import.
+      const startMatch = startParam?.match(/^([gi])(-?\d+)$/);
+      const startGroup = startMatch?.[2];
+      const startImport = startMatch?.[1] === "i";
 
       // Groups/channels with shared playlists that you're a member of appear automatically.
       if (libraryRef.current) {
@@ -278,8 +281,12 @@ export default function App() {
         if (data && libraryRef.current) {
           const others = libraryRef.current.groups.filter((group) => group.chatId !== startGroup);
           commitPersonal({ ...libraryRef.current, groups: [...others, { chatId: startGroup, title: data.title }] });
-          if (data.playlists[0]) {
-            setView({ kind: "group", chatId: startGroup, playlistId: data.playlists[0].id });
+          const main = data.playlists.find((playlist) => playlist.id === data.mainPlaylistId) ?? data.playlists[0];
+          if (main) {
+            setView({ kind: "group", chatId: startGroup, playlistId: main.id });
+          }
+          if (startImport) {
+            setSheet({ type: "import", chatId: startGroup });
           }
         }
       }
@@ -479,6 +486,7 @@ export default function App() {
           }}
           onCreate={(target, title) => void createPlaylist(target, title)}
           onOpenBot={() => openBotChat(session.botUsername)}
+          onImport={(chatId) => setSheet({ type: "import", chatId })}
         />
       </aside>
 
@@ -655,6 +663,17 @@ export default function App() {
           chatTitle={groups[sheet.chatId]?.title ?? ""}
           onClose={() => setSheet(null)}
           onProgress={() => void refreshGroup(sheet.chatId)}
+          onDone={() => {
+            // Jump to the playlist the import filled.
+            const chatId = sheet.chatId;
+            void api.getGroup(chatId).then((data) => {
+              applyGroup(data);
+              const main = data.playlists.find((playlist) => playlist.id === data.mainPlaylistId);
+              if (main) {
+                setView({ kind: "group", chatId, playlistId: main.id });
+              }
+            });
+          }}
         />
       ) : null}
 
