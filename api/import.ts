@@ -16,8 +16,12 @@ import { HttpError, queryParam, requireUser, route } from "./_lib/http.js";
 
 const BATCH = 25;
 const TIME_BUDGET_MS = 25_000;
-/** With no known last post, stop after this many missing post numbers in a row. */
-const MAX_MISSES = 150;
+/**
+ * The import ends once it is past the latest known post AND this many post numbers in a row were
+ * missing. The latest known post is only a lower bound (it's the newest *audio* post the bot saw),
+ * so the scan always runs a little past it.
+ */
+const MAX_MISSES = 100;
 
 const bodySchema = z.object({
   from: z.number().int().min(1).max(10_000_000),
@@ -66,7 +70,7 @@ export default route(["POST"], async (request) => {
   let misses = body.data.misses;
   let retryAfter = 0;
 
-  const isDone = () => (last ? id > last : misses >= MAX_MISSES);
+  const isDone = () => id > (last ?? 0) && misses >= MAX_MISSES;
 
   while (!isDone() && id < body.data.from + BATCH && Date.now() - started < TIME_BUDGET_MS) {
     let forwarded: TelegramMessage | null = null;

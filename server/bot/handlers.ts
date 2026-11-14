@@ -322,7 +322,11 @@ export async function addToShared(
     if (target.addedCount > 0) {
       playlists[index] = { ...target.playlist, updatedAt: new Date().toISOString() };
     }
-    const highest = Math.max(group.lastMessageId ?? 0, ...tracks.map((track) => track.sourceMessageId ?? 0));
+    // Only live posts advance the "latest post" marker; imported history never does.
+    const highest =
+      mode === "append"
+        ? Math.max(group.lastMessageId ?? 0, ...tracks.map((track) => track.sourceMessageId ?? 0))
+        : (group.lastMessageId ?? 0);
     return {
       next: {
         ...group,
