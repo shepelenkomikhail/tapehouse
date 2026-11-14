@@ -66,5 +66,6 @@ export type PlaylistOp =
   | { op: "deletePlaylist"; playlistId: string }
   | { op: "reorder"; playlistId: string; trackIds: string[] }
   | { op: "shuffle"; playlistId: string }
+  | { op: "sortByAdded"; playlistId: string; order: "newest" | "oldest" }
   | { op: "removeTrack"; playlistId: string; trackId: string }
   | { op: "addTracks"; playlistId: string; tracks: Track[] };

@@ -24,6 +24,12 @@ interface TelegramChat {
   title?: string;
 }
 
+/** When a forwarded message was originally posted, so "date added" reflects the real post date. */
+export function postedAt(message: TelegramMessage) {
+  const date = message.forward_origin?.date;
+  return date ? new Date(date * 1000).toISOString() : undefined;
+}
+
 export interface TelegramMessage {
   message_id: number;
   text?: string;
@@ -34,6 +40,8 @@ export interface TelegramMessage {
   /** Set when the message was forwarded; for channel posts it names the channel. */
   forward_origin?: {
     type: "user" | "hidden_user" | "chat" | "channel";
+    /** Unix time the original message was sent. */
+    date?: number;
     chat?: TelegramChat;
     sender_chat?: TelegramChat;
     message_id?: number;
@@ -446,7 +454,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate) {
       if (membership.ok && membership.admin) {
         const chat = { ...source, title: membership.title ?? source.title };
         const messageId = message.forward_origin?.message_id;
-        const { title, added } = await addToShared(chat, [{ ...track, sourceMessageId: messageId }], "history");
+        const { title, added } = await addToShared(chat, [{ ...track, sourceMessageId: messageId, addedAt: postedAt(message) ?? track.addedAt }], "history");
         await reply(message, added ? t.addedGroup(track.title, title) : t.alreadyGroup(track.title, title), [
           await sharedButton(message.chat, String(source.id), t.openShared(chat.title ?? title)),
         ]);

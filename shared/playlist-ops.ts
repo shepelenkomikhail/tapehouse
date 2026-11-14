@@ -123,10 +123,33 @@ export function reorderTracks(tracks: Track[], trackIds: string[]): Track[] {
   return ordered;
 }
 
+/**
+ * Orders tracks by when they were added. Channel tracks carry their post number, which is the
+ * reliable order there (history imports all get stamped at import time), so it wins when both
+ * tracks have one. Ties keep the current order.
+ */
+export function sortByAdded(tracks: Track[], order: "newest" | "oldest"): Track[] {
+  const direction = order === "newest" ? -1 : 1;
+  const time = (track: Track) => Date.parse(track.addedAt) || 0;
+  return tracks
+    .map((track, index) => ({ track, index }))
+    .sort((a, b) => {
+      const byPost =
+        a.track.sourceMessageId !== undefined && b.track.sourceMessageId !== undefined
+          ? a.track.sourceMessageId - b.track.sourceMessageId
+          : 0;
+      const diff = byPost || time(a.track) - time(b.track);
+      return diff ? diff * direction : a.index - b.index;
+    })
+    .map(({ track }) => track);
+}
+
 /** Appends tracks, skipping ones already in the playlist (same Telegram file). */
 export function appendUniqueTracks(playlist: Playlist, incoming: Track[]) {
   const known = new Set(playlist.tracks.map((track) => track.fileUniqueId ?? track.fileId));
   const added: Track[] = [];
+  // "Date added" means added to *this* playlist, even for a track copied from another one.
+  const now = new Date().toISOString();
 
   for (const track of incoming) {
     const key = track.fileUniqueId ?? track.fileId;
@@ -134,7 +157,7 @@ export function appendUniqueTracks(playlist: Playlist, incoming: Track[]) {
       continue;
     }
     known.add(key);
-    added.push({ ...track, id: makeId() });
+    added.push({ ...track, id: makeId(), addedAt: now });
   }
 
   return {
@@ -217,6 +240,9 @@ export function applyPlaylistOp(playlists: Playlist[], op: PlaylistOp): Playlist
       break;
     case "shuffle":
       next = { ...current, tracks: smartShuffle(current.tracks), lastShuffleAt: now, updatedAt: now };
+      break;
+    case "sortByAdded":
+      next = { ...current, tracks: sortByAdded(current.tracks, op.order), updatedAt: now };
       break;
     case "removeTrack":
       next = {

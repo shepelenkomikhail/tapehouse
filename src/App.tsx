@@ -154,7 +154,7 @@ export default function App() {
 
       const group = groupsRef.current[target.chatId];
       // Optimistic update for edits whose result we can predict exactly.
-      if (group && (op.op === "reorder" || op.op === "removeTrack" || op.op === "updatePlaylist")) {
+      if (group && (op.op === "reorder" || op.op === "sortByAdded" || op.op === "removeTrack" || op.op === "updatePlaylist")) {
         try {
           setGroup(target.chatId, { playlists: applyPlaylistOp(group.playlists, op) });
         } catch {
@@ -620,6 +620,23 @@ export default function App() {
           >
             {t("sheet.sendAll")}
           </SheetButton>
+          {(["newest", "oldest"] as const).map((order) => (
+            <SheetButton
+              key={order}
+              icon={<Icon name="sort" />}
+              onClick={() => {
+                setSheet(null);
+                void runOp(targetOf(sheet.ref), { op: "sortByAdded", playlistId: sheet.ref.playlistId, order }).then((result) => {
+                  if (result) {
+                    haptic.success();
+                    notify(t("toast.sorted"));
+                  }
+                });
+              }}
+            >
+              {t(order === "newest" ? "sheet.sortNewest" : "sheet.sortOldest")}
+            </SheetButton>
+          ))}
           {sheet.ref.kind === "group" ? (
             <SheetButton
               icon={<Icon name="inbox" />}

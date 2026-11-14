@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Track } from "../shared/types.js";
-import { addToShared, trackFromMessage, type TelegramMessage } from "../server/bot/handlers.js";
+import { addToShared, postedAt, trackFromMessage, type TelegramMessage } from "../server/bot/handlers.js";
 import { callTelegram, checkChatMember, TelegramApiError } from "../server/bot/telegram-api.js";
 import { readGroup } from "../server/lib/blob-store.js";
 import { HttpError, queryParam, requireUser, route } from "./_lib/http.js";
@@ -100,7 +100,7 @@ export default route(["POST"], async (request) => {
     misses = 0;
     const track = trackFromMessage(forwarded);
     if (track) {
-      found.push({ ...track, sourceMessageId: id });
+      found.push({ ...track, sourceMessageId: id, addedAt: postedAt(forwarded) ?? track.addedAt });
     }
     // Remove the temporary copy from the user's chat with the bot.
     await callTelegram("deleteMessage", { chat_id: user.id, message_id: forwarded.message_id }).catch(() => undefined);

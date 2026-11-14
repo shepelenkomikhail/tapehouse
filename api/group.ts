@@ -32,6 +32,7 @@ const opSchema: z.ZodType<PlaylistOp> = z.discriminatedUnion("op", [
   z.object({ op: z.literal("deletePlaylist"), playlistId: id }),
   z.object({ op: z.literal("reorder"), playlistId: id, trackIds: z.array(id).max(5000) }),
   z.object({ op: z.literal("shuffle"), playlistId: id }),
+  z.object({ op: z.literal("sortByAdded"), playlistId: id, order: z.enum(["newest", "oldest"]) }),
   z.object({ op: z.literal("removeTrack"), playlistId: id, trackId: id }),
   z.object({ op: z.literal("addTracks"), playlistId: id, tracks: z.array(trackSchema).max(500) }),
 ]);
