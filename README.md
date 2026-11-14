@@ -52,9 +52,21 @@ scripts/        setup-telegram.mjs: webhook, commands, menu button
 ## Bot usage
 
 - **Private chat:** send or forward any audio (or an mp3/m4a/flac file) to the bot. It goes to your Inbox.
-- **Groups:** reply `/save@tapehouse_bot` to a track to add it to the group's shared playlist, or
-  `/inbox@tapehouse_bot` to keep it for yourself. Captioning an upload with `@tapehouse_bot`
-  also works if the bot can see group messages (privacy mode off).
+- **Channels:** add the bot as an admin. Every audio posted in the channel is added to the channel's
+  shared playlist automatically (nothing is posted back). The bot can't read channel history, so to
+  add older tracks, forward them from the channel to the bot: as a channel admin they go straight
+  into the channel playlist. Forwarding any channel post to the bot also replies with a button that
+  opens the channel's playlists in the app.
+- **Groups:** reply `/save@tapehouse_bot` to a track to add it to the group's shared playlist,
+  `/inbox@tapehouse_bot` to keep it for yourself, or `/playlists@tapehouse_bot` for an "open" button.
+  Captioning an upload with `@tapehouse_bot` also works if the bot can see group messages (privacy mode off).
+- Shared playlists can be opened by any member of that chat (checked with `getChatMember`).
+
+## Languages
+
+The Mini App is in Russian by default with an RU/EN switch in the header; the choice is stored in
+Telegram CloudStorage and follows the user across devices. Strings live in `src/lib/i18n.tsx`.
+The bot replies in Russian, or English for users whose Telegram language is English.
 
 ## Limits
 

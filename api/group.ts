@@ -43,7 +43,7 @@ async function requireMembership(request: VercelRequest) {
   }
   const membership = await checkChatMember(chatId, user.id);
   if (!membership.ok) {
-    throw new HttpError(403, "Only members of this group can open its playlists. Is the bot still in the group?");
+    throw new HttpError(403, "Only members of this chat can open its playlists. Is the bot still there?", "not_member");
   }
   return { chatId, chatTitle: membership.title };
 }
@@ -68,12 +68,12 @@ export default route(["GET", "POST"], async (request) => {
   const op = parsed.data;
 
   if (op.op === "addTracks" && !op.tracks.every((track) => verifyFileSignature(track.fileId, track.sig))) {
-    throw new HttpError(400, "Some tracks were not imported through this bot.");
+    throw new HttpError(400, "Some tracks were not imported through this bot.", "foreign_tracks");
   }
   if (op.op === "createPlaylist") {
     const existing = await readGroup(chatId);
     if ((existing?.playlists.length ?? 0) >= 50) {
-      throw new HttpError(400, "A group can have up to 50 playlists.");
+      throw new HttpError(400, "A chat can have up to 50 playlists.", "limit");
     }
   }
 
@@ -84,7 +84,7 @@ export default route(["GET", "POST"], async (request) => {
     });
   } catch (error) {
     if (error instanceof PlaylistOpError) {
-      throw new HttpError(404, error.message);
+      throw new HttpError(404, error.message, "not_found");
     }
     throw error;
   }

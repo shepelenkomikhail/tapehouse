@@ -62,10 +62,10 @@ export default route(["POST"], async (request) => {
   const user = requireUser(request);
   const body = bodySchema.safeParse(request.body);
   if (!body.success) {
-    throw new HttpError(400, `Send between 1 and ${MAX_TRACKS} tracks at a time.`);
+    throw new HttpError(400, `Send between 1 and ${MAX_TRACKS} tracks at a time.`, "too_many");
   }
   if (!body.data.tracks.every((track) => verifyFileSignature(track.fileId, track.sig))) {
-    throw new HttpError(400, "Some tracks were not imported through this bot.");
+    throw new HttpError(400, "Some tracks were not imported through this bot.", "foreign_tracks");
   }
 
   try {
@@ -97,7 +97,7 @@ export default route(["POST"], async (request) => {
     }
   } catch (error) {
     if (error instanceof TelegramApiError && error.errorCode === 403) {
-      throw new HttpError(403, "Start a private chat with the bot first, then try again.");
+      throw new HttpError(403, "Start a private chat with the bot first, then try again.", "start_bot");
     }
     throw error;
   }

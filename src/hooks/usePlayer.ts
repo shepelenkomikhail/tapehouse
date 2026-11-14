@@ -164,7 +164,7 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
         update({
           playing: false,
           buffering: false,
-          error: "Couldn't play this track here (files over 20 MB can't stream). Use \"Send to chat\" to play it in Telegram.",
+          error: "stream", // translated by the UI
         });
       },
     };

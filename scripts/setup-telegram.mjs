@@ -33,7 +33,7 @@ const me = await telegram("getMe");
 await telegram("setWebhook", {
   url: `${appUrl}/api/telegram-webhook`,
   secret_token: secret,
-  allowed_updates: ["message"],
+  allowed_updates: ["message", "channel_post"],
   // One update at a time keeps inbox/group writes ordered.
   max_connections: 1,
 });
@@ -41,26 +41,27 @@ await telegram("setWebhook", {
 await telegram("setMyCommands", {
   scope: { type: "all_private_chats" },
   commands: [
-    { command: "start", description: "Open Tapehouse" },
-    { command: "help", description: "How to collect tracks" },
+    { command: "start", description: "Открыть Tapehouse" },
+    { command: "help", description: "Как собирать треки" },
   ],
 });
 
 await telegram("setMyCommands", {
   scope: { type: "all_group_chats" },
   commands: [
-    { command: "save", description: "Reply to a track to add it to the group playlist" },
-    { command: "inbox", description: "Reply to a track to save it to your Inbox" },
-    { command: "help", description: "How Tapehouse works in groups" },
+    { command: "save", description: "Ответьте на трек, чтобы добавить его в плейлист группы" },
+    { command: "inbox", description: "Ответьте на трек, чтобы сохранить его во «Входящие»" },
+    { command: "playlists", description: "Открыть плейлисты группы" },
+    { command: "help", description: "Как работает Tapehouse в группах" },
   ],
 });
 
 await telegram("setChatMenuButton", {
-  menu_button: { type: "web_app", text: "Playlists", web_app: { url: appUrl } },
+  menu_button: { type: "web_app", text: "Плейлисты", web_app: { url: appUrl } },
 });
 
 await telegram("setMyShortDescription", {
-  short_description: "Playlists for your Telegram music: sort, reorder, shuffle and play.",
+  short_description: "Плейлисты для вашей музыки в Telegram: сортируйте, перемешивайте и слушайте.",
 });
 
 const info = await telegram("getWebhookInfo");

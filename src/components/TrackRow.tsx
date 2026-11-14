@@ -2,6 +2,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Track } from "../../shared/types";
 import { formatDuration } from "../lib/format";
+import { useI18n } from "../lib/i18n";
 import { Icon } from "./Icon";
 
 interface TrackRowProps {
@@ -15,6 +16,7 @@ interface TrackRowProps {
 }
 
 export function TrackRow({ track, index, isCurrent, isPlaying, canReorder, onPlay, onMore }: TrackRowProps) {
+  const { t } = useI18n();
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: track.id, disabled: !canReorder });
 
@@ -29,7 +31,7 @@ export function TrackRow({ track, index, isCurrent, isPlaying, canReorder, onPla
           ref={setActivatorNodeRef}
           className="track__handle"
           type="button"
-          aria-label={`Move ${track.title}`}
+          aria-label={t("track.move", { title: track.title })}
           {...attributes}
           {...listeners}
         >
@@ -48,7 +50,7 @@ export function TrackRow({ track, index, isCurrent, isPlaying, canReorder, onPla
         <span className="track__time">{track.durationSec ? formatDuration(track.durationSec) : ""}</span>
       </button>
 
-      <button className="icon-button" type="button" aria-label={`More actions for ${track.title}`} onClick={onMore}>
+      <button className="icon-button" type="button" aria-label={t("track.more", { title: track.title })} onClick={onMore}>
         <Icon name="more" size={18} />
       </button>
     </li>

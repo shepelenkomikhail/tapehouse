@@ -9,6 +9,7 @@ import { Sheet, SheetButton } from "./components/Sheet";
 import { sameRef, usePlayer, type PlaylistRef } from "./hooks/usePlayer";
 import { api, ApiError } from "./lib/api";
 import { isSyncedStorage } from "./lib/cloud-storage";
+import { DEFAULT_INBOX_DESCRIPTIONS, DEFAULT_INBOX_TITLES, errorMessage, useI18n } from "./lib/i18n";
 import { loadLibrary, mergeInbox, persistLibrary, type PersonalLibrary } from "./lib/library";
 import { confirmAction, getStartParam, getWebApp, haptic, initTelegram, openBotChat } from "./lib/telegram";
 
@@ -21,11 +22,15 @@ type SheetState =
 
 const MAX_SEND = 100;
 
-function errorText(error: unknown) {
-  return error instanceof Error ? error.message : "Something went wrong.";
-}
-
 export default function App() {
+  const { t, count } = useI18n();
+  // Callbacks created once (startup, persistence) read the current language through this ref.
+  const tRef = useRef(t);
+  tRef.current = t;
+  const countRef = useRef(count);
+  countRef.current = count;
+  const errorText = useCallback((error: unknown) => errorMessage(tRef.current, error), []);
+
   const [session, setSession] = useState<{ user: SessionUser; botUsername?: string } | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [library, setLibrary] = useState<PersonalLibrary | null>(null);
@@ -72,12 +77,12 @@ export default function App() {
       libraryRef.current = next;
       setLibrary(next);
       if (previous) {
-        persistLibrary(previous, next).catch(() =>
-          notify("Couldn't save to your Telegram cloud. Check your connection.", true),
+        persistLibrary(previous, next).catch((error) =>
+          notify(tRef.current("toast.cloudSaveFailed", { detail: errorText(error) }), true),
         );
       }
     },
-    [notify],
+    [notify, errorText],
   );
 
   const setGroup = useCallback((chatId: string, patch: Partial<GroupView>) => {
@@ -104,7 +109,7 @@ export default function App() {
         return null;
       }
     },
-    [applyGroup, setGroup],
+    [applyGroup, setGroup, errorText],
   );
 
   /** Apply a playlist operation to a personal or group library. Returns the resulting playlists. */
@@ -145,7 +150,7 @@ export default function App() {
         return null;
       }
     },
-    [applyGroup, commitPersonal, loadGroup, notify, setGroup],
+    [applyGroup, commitPersonal, loadGroup, notify, setGroup, errorText],
   );
 
   const targetOf = (ref: PlaylistRef): Target =>
@@ -167,7 +172,7 @@ export default function App() {
       try {
         lib = await loadLibrary();
       } catch (error) {
-        setFatal(`Couldn't load your playlists from Telegram. ${errorText(error)}`);
+        setFatal(`${tRef.current("app.cantLoad")} ${errorText(error)}`);
         return;
       }
       libraryRef.current = lib;
@@ -181,14 +186,19 @@ export default function App() {
       } catch (error) {
         setFatal(
           error instanceof ApiError && error.status === 401
-            ? "Open Tapehouse from your Telegram bot to use it."
-            : `Couldn't reach Tapehouse. ${errorText(error)}`,
+            ? error.code === "expired"
+              ? tRef.current("err.expired")
+              : tRef.current("app.openFromTelegram")
+            : `${tRef.current("app.cantReach")} ${errorText(error)}`,
         );
         return;
       }
 
       if (inbox.length > 0) {
-        const merged = mergeInbox(libraryRef.current!, inbox);
+        const merged = mergeInbox(libraryRef.current!, inbox, {
+          title: tRef.current("inbox.title"),
+          description: tRef.current("inbox.description"),
+        });
         const previous = libraryRef.current!;
         libraryRef.current = merged.library;
         setLibrary(merged.library);
@@ -197,10 +207,11 @@ export default function App() {
           await persistLibrary(previous, merged.library);
           await api.ackInbox(inbox.map((track) => track.id));
           if (merged.added > 0) {
-            notify(`${merged.added} new ${merged.added === 1 ? "track" : "tracks"} in your Inbox`);
+            notify(tRef.current("toast.newTracks", { count: countRef.current(merged.added, "unit.newTrack") }));
           }
-        } catch {
-          notify("New tracks arrived but couldn't be saved yet. They'll retry next time.", true);
+        } catch (error) {
+          console.error("Inbox save failed", error);
+          notify(tRef.current("toast.inboxSaveFailed", { detail: errorText(error) }), true);
         }
       }
 
@@ -225,7 +236,7 @@ export default function App() {
         }
       }
     })();
-  }, [commitPersonal, loadGroup, notify]);
+  }, [commitPersonal, loadGroup, notify, errorText]);
 
   // Telegram's native back button mirrors our in-app back arrow on phones.
   useEffect(() => {
@@ -245,10 +256,10 @@ export default function App() {
 
   useEffect(() => {
     if (player.state.error) {
-      notify(player.state.error, true);
+      notify(t("player.error"), true);
       player.clearError();
     }
-  }, [player, notify]);
+  }, [player, notify, t]);
 
   // ---------- Derived ----------
 
@@ -262,8 +273,17 @@ export default function App() {
   );
 
   const current = view ? resolve(view) : undefined;
+  const isInbox = (ref: PlaylistRef) => ref.kind === "personal" && ref.playlistId === library?.inboxId;
+  const titleOf = (ref: PlaylistRef) => {
+    const stored = resolve(ref)?.title ?? "";
+    return isInbox(ref) && DEFAULT_INBOX_TITLES.has(stored) ? t("inbox.title") : stored;
+  };
   const currentContext =
-    view?.kind === "group" ? groups[view.chatId]?.title ?? "Group" : view?.playlistId === library?.inboxId ? "Inbox" : "My playlist";
+    view?.kind === "group"
+      ? groups[view.chatId]?.title ?? t("playlist.group")
+      : view && isInbox(view)
+        ? t("inbox.title")
+        : t("playlist.my");
 
   // If the open playlist disappears (deleted elsewhere), fall back to home.
   useEffect(() => {
@@ -305,11 +325,11 @@ export default function App() {
     const tracks = playlist.tracks.slice(0, MAX_SEND);
     setBusy("send");
     try {
-      await api.sendToChat(playlist.title, tracks);
+      await api.sendToChat(titleOf(ref), tracks);
       notify(
         playlist.tracks.length > MAX_SEND
-          ? `Sent the first ${MAX_SEND} tracks to your chat with the bot`
-          : `Sent ${tracks.length} ${tracks.length === 1 ? "track" : "tracks"} to your chat with the bot`,
+          ? t("toast.sentFirst", { count: count(MAX_SEND, "unit.track") })
+          : t("toast.sent", { count: count(tracks.length, "unit.track") }),
       );
     } catch (error) {
       notify(errorText(error), true);
@@ -324,14 +344,15 @@ export default function App() {
     const result = await runOp(targetOf(ref), { op: "addTracks", playlistId: ref.playlistId, tracks: [track] });
     const after = result?.find((playlist) => playlist.id === ref.playlistId);
     if (after) {
-      notify(after.tracks.length > before ? `Added to “${after.title}”` : `Already in “${after.title}”`);
+      const title = titleOf(ref) || after.title;
+      notify(after.tracks.length > before ? t("toast.addedTo", { title }) : t("toast.alreadyIn", { title }));
     }
   };
 
   const deletePlaylist = async (ref: PlaylistRef) => {
     const playlist = resolve(ref);
     setSheet(null);
-    if (!playlist || !(await confirmAction(`Delete “${playlist.title}”? This can't be undone.`))) {
+    if (!playlist || !(await confirmAction(t("confirm.delete", { title: titleOf(ref) })))) {
       return;
     }
     if (sameRef(player.state.source, ref)) {
@@ -370,7 +391,7 @@ export default function App() {
   if (!library || !session) {
     return (
       <main className="screen-message">
-        <div className="spinner" aria-label="Loading" />
+        <div className="spinner" aria-label={t("app.loading")} />
       </main>
     );
   }
@@ -378,7 +399,7 @@ export default function App() {
   const copyTargets: { ref: PlaylistRef; label: string; group?: string }[] = [
     ...library.playlists.map((playlist) => ({
       ref: { kind: "personal", playlistId: playlist.id } as PlaylistRef,
-      label: playlist.title,
+      label: titleOf({ kind: "personal", playlistId: playlist.id }),
     })),
     ...groupList.flatMap((group) =>
       group.status === "ready"
@@ -417,6 +438,12 @@ export default function App() {
           <PlaylistScreen
             key={`${view.kind}:${view.playlistId}`}
             playlist={current}
+            title={titleOf(view)}
+            description={
+              isInbox(view) && DEFAULT_INBOX_DESCRIPTIONS.has(current.description)
+                ? t("inbox.description")
+                : current.description
+            }
             context={currentContext}
             currentTrackId={sameRef(player.state.source, view) ? player.state.track?.id ?? null : null}
             isPlaying={player.state.playing}
@@ -441,7 +468,7 @@ export default function App() {
         ) : (
           <div className="empty-detail">
             <Icon name="music" size={40} />
-            <p>Pick a playlist to see its tracks.</p>
+            <p>{t("playlist.pick")}</p>
           </div>
         )}
       </main>
@@ -457,7 +484,7 @@ export default function App() {
       {sheet?.type === "track" ? (
         <Sheet title={sheet.track.title} subtitle={sheet.track.performer} onClose={() => setSheet(null)}>
           <SheetButton icon={<Icon name="copy" />} onClick={() => setSheet({ ...sheet, type: "copy" })}>
-            Add to playlist…
+            {t("sheet.addToPlaylist")}
           </SheetButton>
           <SheetButton
             icon={<Icon name="send" />}
@@ -466,12 +493,12 @@ export default function App() {
               setBusy("send");
               api
                 .sendToChat("", [sheet.track])
-                .then(() => notify("Sent to your chat with the bot"))
+                .then(() => notify(t("toast.sentOne")))
                 .catch((error) => notify(errorText(error), true))
                 .finally(() => setBusy(null));
             }}
           >
-            Send to chat
+            {t("sheet.sendToChat")}
           </SheetButton>
           <SheetButton
             icon={<Icon name="trash" />}
@@ -485,15 +512,15 @@ export default function App() {
               });
             }}
           >
-            Remove from this playlist
+            {t("sheet.removeFromPlaylist")}
           </SheetButton>
         </Sheet>
       ) : null}
 
       {sheet?.type === "copy" ? (
-        <Sheet title="Add to playlist" subtitle={sheet.track.title} onClose={() => setSheet(null)}>
+        <Sheet title={t("sheet.addTitle")} subtitle={sheet.track.title} onClose={() => setSheet(null)}>
           {copyTargets.filter((target) => !sameRef(target.ref, sheet.ref)).length === 0 ? (
-            <p className="muted">Create another playlist first.</p>
+            <p className="muted">{t("sheet.createFirst")}</p>
           ) : (
             copyTargets
               .filter((target) => !sameRef(target.ref, sheet.ref))
@@ -512,9 +539,9 @@ export default function App() {
       ) : null}
 
       {sheet?.type === "playlist" ? (
-        <Sheet title={resolve(sheet.ref)?.title ?? "Playlist"} onClose={() => setSheet(null)}>
+        <Sheet title={titleOf(sheet.ref)} onClose={() => setSheet(null)}>
           <SheetButton icon={<Icon name="edit" />} onClick={() => setSheet({ type: "rename", ref: sheet.ref })}>
-            Rename
+            {t("sheet.rename")}
           </SheetButton>
           <SheetButton
             icon={<Icon name="send" />}
@@ -523,15 +550,15 @@ export default function App() {
               void sendToChat(sheet.ref);
             }}
           >
-            Send all to chat
+            {t("sheet.sendAll")}
           </SheetButton>
           {sheet.ref.kind === "group" ? (
             <SheetButton icon={<Icon name="close" />} onClick={() => forgetGroup((sheet.ref as { chatId: string }).chatId)}>
-              Hide this group from my list
+              {t("sheet.hideGroup")}
             </SheetButton>
           ) : null}
           <SheetButton icon={<Icon name="trash" />} danger onClick={() => void deletePlaylist(sheet.ref)}>
-            Delete playlist
+            {t("sheet.deletePlaylist")}
           </SheetButton>
         </Sheet>
       ) : null}
@@ -539,6 +566,7 @@ export default function App() {
       {sheet?.type === "rename" ? (
         <RenameSheet
           playlist={resolve(sheet.ref)}
+          title={titleOf(sheet.ref)}
           onClose={() => setSheet(null)}
           onSave={(title, description) => {
             setSheet(null);
@@ -563,14 +591,17 @@ export default function App() {
 
 function RenameSheet({
   playlist,
+  title: currentTitle,
   onClose,
   onSave,
 }: {
   playlist?: Playlist;
+  title: string;
   onClose: () => void;
   onSave: (title: string, description: string) => void;
 }) {
-  const [title, setTitle] = useState(playlist?.title ?? "");
+  const { t } = useI18n();
+  const [title, setTitle] = useState(currentTitle);
   const [description, setDescription] = useState(playlist?.description ?? "");
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -578,14 +609,14 @@ function RenameSheet({
   };
 
   return (
-    <Sheet title="Edit playlist" onClose={onClose}>
+    <Sheet title={t("sheet.editTitle")} onClose={onClose}>
       <form className="form" onSubmit={submit}>
         <label className="field">
-          <span>Name</span>
+          <span>{t("sheet.name")}</span>
           <input className="input" autoFocus value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
         </label>
         <label className="field">
-          <span>Description</span>
+          <span>{t("sheet.description")}</span>
           <textarea
             className="input"
             rows={2}
@@ -595,7 +626,7 @@ function RenameSheet({
           />
         </label>
         <button className="button button--primary" type="submit" disabled={!title.trim()}>
-          Save
+          {t("sheet.save")}
         </button>
       </form>
     </Sheet>

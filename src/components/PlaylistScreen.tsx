@@ -16,12 +16,14 @@ import {
 } from "@dnd-kit/sortable";
 import { useState } from "react";
 import type { Playlist, Track } from "../../shared/types";
-import { formatRuntime, plural } from "../lib/format";
+import { useI18n } from "../lib/i18n";
 import { Icon } from "./Icon";
 import { TrackRow } from "./TrackRow";
 
 interface PlaylistScreenProps {
   playlist: Playlist;
+  title: string;
+  description: string;
   context: string;
   currentTrackId: string | null;
   isPlaying: boolean;
@@ -37,6 +39,7 @@ interface PlaylistScreenProps {
 
 export function PlaylistScreen(props: PlaylistScreenProps) {
   const { playlist } = props;
+  const { t, count, runtime } = useI18n();
   const [filter, setFilter] = useState("");
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -66,22 +69,22 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
   return (
     <div className="playlist">
       <header className="playlist__header">
-        <button className="icon-button back-button" type="button" aria-label="Back" onClick={props.onBack}>
+        <button className="icon-button back-button" type="button" aria-label={t("playlist.back")} onClick={props.onBack}>
           <Icon name="back" />
         </button>
         <span className="cover cover--large" style={{ background: playlist.accent }} aria-hidden="true">
-          {playlist.title.slice(0, 1).toUpperCase()}
+          {props.title.slice(0, 1).toUpperCase()}
         </span>
         <div className="playlist__meta">
           <span className="eyebrow">{props.context}</span>
-          <h2>{playlist.title}</h2>
-          {playlist.description ? <p>{playlist.description}</p> : null}
+          <h2>{props.title}</h2>
+          {props.description ? <p>{props.description}</p> : null}
           <p className="muted">
-            {plural(playlist.tracks.length, "track")}
-            {seconds > 0 ? ` · ${formatRuntime(seconds)}` : ""}
+            {count(playlist.tracks.length, "unit.track")}
+            {seconds > 0 ? ` · ${runtime(seconds)}` : ""}
           </p>
         </div>
-        <button className="icon-button" type="button" aria-label="Playlist options" onClick={props.onPlaylistMore}>
+        <button className="icon-button" type="button" aria-label={t("playlist.options")} onClick={props.onPlaylistMore}>
           <Icon name="more" />
         </button>
       </header>
@@ -93,25 +96,25 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
           disabled={playlist.tracks.length === 0}
           onClick={() => playlist.tracks[0] && props.onPlay(playlist.tracks[0])}
         >
-          <Icon name="play" size={16} /> Play
+          <Icon name="play" size={16} /> {t("playlist.play")}
         </button>
         <button
           className="button"
           type="button"
           disabled={playlist.tracks.length < 2 || props.busy === "shuffle"}
           onClick={props.onShuffle}
-          title="Reorders the playlist, keeping the same artist from playing twice in a row"
+          title={t("playlist.shuffleHint")}
         >
-          <Icon name="shuffle" size={16} /> Shuffle
+          <Icon name="shuffle" size={16} /> {t("playlist.shuffle")}
         </button>
         <button
           className="button"
           type="button"
           disabled={playlist.tracks.length === 0 || props.busy === "send"}
           onClick={props.onSend}
-          title="The bot sends these tracks to your chat, for Telegram's own player"
+          title={t("playlist.sendHint")}
         >
-          <Icon name="send" size={16} /> {props.busy === "send" ? "Sending…" : "Send to chat"}
+          <Icon name="send" size={16} /> {props.busy === "send" ? t("playlist.sending") : t("playlist.send")}
         </button>
       </div>
 
@@ -119,7 +122,7 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
         <input
           className="input search"
           type="search"
-          placeholder="Search in playlist"
+          placeholder={t("playlist.search")}
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
         />
@@ -128,7 +131,7 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
       {playlist.tracks.length === 0 ? (
         <div className="hint">
           <Icon name="music" size={28} />
-          <p>No tracks yet. Use “Add to playlist” on any track in your Inbox, or send audio to the bot.</p>
+          <p>{t("playlist.empty")}</p>
         </div>
       ) : (
         <DndContext

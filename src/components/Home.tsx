@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { Playlist } from "../../shared/types";
 import { sameRef, type PlaylistRef } from "../hooks/usePlayer";
-import { formatRuntime, plural } from "../lib/format";
+import { DEFAULT_INBOX_TITLES, LANGS, useI18n } from "../lib/i18n";
 import { Icon } from "./Icon";
 
 export interface GroupView {
@@ -26,51 +26,57 @@ interface HomeProps {
   onOpenBot: () => void;
 }
 
-function runtime(playlist: Playlist) {
-  return playlist.tracks.reduce((sum, track) => sum + track.durationSec, 0);
-}
-
 function PlaylistItem({
   playlist,
+  title,
   icon,
   active,
   playing,
   onClick,
 }: {
   playlist: Playlist;
+  title: string;
   icon?: "inbox";
   active: boolean;
   playing: boolean;
   onClick: () => void;
 }) {
-  const seconds = runtime(playlist);
+  const { t, count, runtime } = useI18n();
+  const seconds = playlist.tracks.reduce((sum, track) => sum + track.durationSec, 0);
   return (
     <li>
       <button className={`list-item${active ? " list-item--active" : ""}`} type="button" onClick={onClick}>
         <span className="cover" style={{ background: playlist.accent }} aria-hidden="true">
-          {icon ? <Icon name={icon} size={20} /> : playlist.title.slice(0, 1).toUpperCase()}
+          {icon ? <Icon name={icon} size={20} /> : title.slice(0, 1).toUpperCase()}
         </span>
         <span className="list-item__text">
-          <strong>{playlist.title}</strong>
+          <strong>{title}</strong>
           <span>
-            {plural(playlist.tracks.length, "track")}
-            {seconds > 0 ? ` · ${formatRuntime(seconds)}` : ""}
+            {count(playlist.tracks.length, "unit.track")}
+            {seconds > 0 ? ` · ${runtime(seconds)}` : ""}
           </span>
         </span>
-        {playing ? <span className="eq eq--small" aria-label="Now playing"><i /><i /><i /></span> : null}
+        {playing ? (
+          <span className="eq eq--small" aria-label={t("home.nowPlaying")}>
+            <i />
+            <i />
+            <i />
+          </span>
+        ) : null}
       </button>
     </li>
   );
 }
 
 function NewPlaylistForm({ onCreate }: { onCreate: (title: string) => void }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
 
   if (!open) {
     return (
       <button className="add-button" type="button" onClick={() => setOpen(true)}>
-        <Icon name="plus" size={18} /> New playlist
+        <Icon name="plus" size={18} /> {t("home.newPlaylist")}
       </button>
     );
   }
@@ -91,59 +97,84 @@ function NewPlaylistForm({ onCreate }: { onCreate: (title: string) => void }) {
         className="input"
         value={title}
         maxLength={80}
-        placeholder="Playlist name"
+        placeholder={t("home.playlistName")}
         onChange={(event) => setTitle(event.target.value)}
         onBlur={() => !title.trim() && setOpen(false)}
       />
       <button className="button button--primary" type="submit" disabled={!title.trim()}>
-        Create
+        {t("home.create")}
       </button>
     </form>
   );
 }
 
+function LanguageSwitch() {
+  const { lang, setLang, t } = useI18n();
+  return (
+    <div className="lang-switch" role="group" aria-label={t("home.language")}>
+      {LANGS.map((code) => (
+        <button
+          key={code}
+          type="button"
+          className={`lang-switch__option${code === lang ? " lang-switch__option--active" : ""}`}
+          aria-pressed={code === lang}
+          onClick={() => setLang(code)}
+        >
+          {code.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Home(props: HomeProps) {
+  const { t } = useI18n();
   const { personal, inboxId, groups, selected, nowPlaying, onOpen, onCreate } = props;
+  const [showHowTo, setShowHowTo] = useState(false);
   const ordered = [
     ...personal.filter((playlist) => playlist.id === inboxId),
     ...personal.filter((playlist) => playlist.id !== inboxId),
   ];
-  const handle = props.botUsername ? `@${props.botUsername}` : "the bot";
+  const botName = props.botUsername ?? "bot";
+  const handle = props.botUsername ? `@${props.botUsername}` : "bot";
+  const sharedHint = t("home.sharedHint", { bot: handle, botName });
 
   return (
     <div className="home">
       <header className="home__header">
-        <div>
+        <div className="home__title">
           <h1>Tapehouse</h1>
           <p>
-            Hi, {props.userName}
-            {props.synced ? "" : " · preview mode, saved in this browser only"}
+            {t("home.greeting", { name: props.userName })}
+            {props.synced ? "" : t("home.previewMode")}
           </p>
         </div>
-        <button className="button" type="button" onClick={props.onOpenBot} disabled={!props.botUsername}>
-          <Icon name="send" size={16} /> Add music
-        </button>
+        <div className="home__actions">
+          <LanguageSwitch />
+          <button className="button" type="button" onClick={props.onOpenBot} disabled={!props.botUsername}>
+            <Icon name="send" size={16} /> {t("home.addMusic")}
+          </button>
+        </div>
       </header>
 
       <section className="section">
-        <h2 className="section__title">My playlists</h2>
+        <h2 className="section__title">{t("home.myPlaylists")}</h2>
         {ordered.length === 0 ? (
           <div className="hint">
             <Icon name="music" size={28} />
-            <p>
-              Forward or send audio files to <strong>{handle}</strong>. They land in your Inbox here, ready to sort
-              into playlists. Everything is stored in your Telegram account.
-            </p>
+            <p>{t("home.emptyHint", { bot: handle })}</p>
           </div>
         ) : (
           <ul className="list">
             {ordered.map((playlist) => {
               const ref: PlaylistRef = { kind: "personal", playlistId: playlist.id };
+              const isInbox = playlist.id === inboxId;
               return (
                 <PlaylistItem
                   key={playlist.id}
                   playlist={playlist}
-                  icon={playlist.id === inboxId ? "inbox" : undefined}
+                  title={isInbox && DEFAULT_INBOX_TITLES.has(playlist.title) ? t("inbox.title") : playlist.title}
+                  icon={isInbox ? "inbox" : undefined}
                   active={sameRef(selected, ref)}
                   playing={sameRef(nowPlaying, ref)}
                   onClick={() => onOpen(ref)}
@@ -160,14 +191,12 @@ export function Home(props: HomeProps) {
           <h2 className="section__title">
             <Icon name="users" size={16} /> {group.title}
           </h2>
-          {group.status === "loading" ? <p className="muted">Loading…</p> : null}
+          {group.status === "loading" ? <p className="muted">{t("home.loading")}</p> : null}
           {group.status === "error" ? <p className="muted">{group.error}</p> : null}
           {group.status === "ready" ? (
             <>
               {group.playlists.length === 0 ? (
-                <p className="muted">
-                  No shared playlists yet. In the group, reply /save@{props.botUsername ?? "bot"} to a track.
-                </p>
+                <p className="muted">{t("home.groupEmpty", { botName })}</p>
               ) : (
                 <ul className="list">
                   {group.playlists.map((playlist) => {
@@ -176,6 +205,7 @@ export function Home(props: HomeProps) {
                       <PlaylistItem
                         key={playlist.id}
                         playlist={playlist}
+                        title={playlist.title}
                         active={sameRef(selected, ref)}
                         playing={sameRef(nowPlaying, ref)}
                         onClick={() => onOpen(ref)}
@@ -190,15 +220,21 @@ export function Home(props: HomeProps) {
         </section>
       ))}
 
-      {groups.length === 0 ? (
-        <section className="section">
-          <h2 className="section__title">Groups</h2>
-          <p className="muted">
-            Add {handle} to a group chat to build shared playlists together. Open them from the button the bot
-            posts in the group.
-          </p>
-        </section>
-      ) : null}
+      <section className="section">
+        {groups.length === 0 ? (
+          <>
+            <h2 className="section__title">{t("home.sharedTitle")}</h2>
+            <p className="muted muted--pre">{sharedHint}</p>
+          </>
+        ) : (
+          <>
+            <button className="add-button" type="button" onClick={() => setShowHowTo((value) => !value)}>
+              <Icon name="users" size={18} /> {t("home.howToAdd")}
+            </button>
+            {showHowTo ? <p className="muted muted--pre">{sharedHint}</p> : null}
+          </>
+        )}
+      </section>
     </div>
   );
 }

@@ -5,6 +5,7 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -26,9 +27,9 @@ async function request<T>(path: string, init?: { method?: string; body?: unknown
     body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
 
-  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
+  const payload = (await response.json().catch(() => ({}))) as T & { error?: string; code?: string };
   if (!response.ok) {
-    throw new ApiError(response.status, payload.error ?? `Request failed (${response.status}).`);
+    throw new ApiError(response.status, payload.error ?? `Request failed (${response.status}).`, payload.code);
   }
   return payload;
 }

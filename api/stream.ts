@@ -34,7 +34,11 @@ export default route(["GET", "HEAD"], async (request, response) => {
     file = await resolveFile(fileId);
   } catch (error) {
     if (error instanceof TelegramApiError && /too big/i.test(error.message)) {
-      throw new HttpError(413, "This file is over Telegram's 20 MB streaming limit. Use \"Send to chat\" to play it in Telegram.");
+      throw new HttpError(
+        413,
+        "This file is over Telegram's 20 MB streaming limit. Use \"Send to chat\" to play it in Telegram.",
+        "file_too_big",
+      );
     }
     throw new HttpError(502, "Telegram could not provide this file.");
   }

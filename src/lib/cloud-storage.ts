@@ -15,10 +15,50 @@ interface KeyValue {
   keys(): Promise<string[]>;
 }
 
-function promisify<T>(call: (callback: (error: string | null, result?: T) => void) => void) {
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function callOnce<T>(label: string, call: (callback: (error: string | null, result?: T) => void) => void) {
   return new Promise<T>((resolve, reject) => {
-    call((error, result) => (error ? reject(new Error(`CloudStorage: ${error}`)) : resolve(result as T)));
+    // Some Telegram clients never answer a failed request; don't hang forever.
+    const timer = setTimeout(() => reject(new Error(`CloudStorage ${label}: no response`)), 10_000);
+    try {
+      call((error, result) => {
+        clearTimeout(timer);
+        if (error) {
+          reject(new Error(`CloudStorage ${label}: ${error}`));
+        } else {
+          resolve(result as T);
+        }
+      });
+    } catch (error) {
+      clearTimeout(timer);
+      reject(new Error(`CloudStorage ${label}: ${error instanceof Error ? error.message : String(error)}`));
+    }
   });
+}
+
+/**
+ * Telegram clients handle CloudStorage requests unreliably when many are in flight at once,
+ * so every request goes through one queue, and failed ones are retried with backoff.
+ */
+let chain: Promise<unknown> = Promise.resolve();
+function serial<T>(label: string, call: (callback: (error: string | null, result?: T) => void) => void) {
+  const run = chain.then(async () => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) {
+        await sleep(400 * attempt);
+      }
+      try {
+        return await callOnce(label, call);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  });
+  chain = run.catch(() => undefined);
+  return run;
 }
 
 function telegramKeyValue(storage: TelegramCloudStorage): KeyValue {
@@ -26,17 +66,20 @@ function telegramKeyValue(storage: TelegramCloudStorage): KeyValue {
     async get(keys) {
       const result: Record<string, string> = {};
       for (let i = 0; i < keys.length; i += 50) {
-        Object.assign(result, await promisify<Record<string, string>>((cb) => storage.getItems(keys.slice(i, i + 50), cb)));
+        Object.assign(
+          result,
+          await serial<Record<string, string>>("getItems", (cb) => storage.getItems(keys.slice(i, i + 50), cb)),
+        );
       }
       return result;
     },
-    set: (key, value) => promisify<boolean>((cb) => storage.setItem(key, value, cb)).then(() => undefined),
+    set: (key, value) => serial<boolean>(`setItem(${key})`, (cb) => storage.setItem(key, value, cb)).then(() => undefined),
     async remove(keys) {
       for (let i = 0; i < keys.length; i += 50) {
-        await promisify<boolean>((cb) => storage.removeItems(keys.slice(i, i + 50), cb));
+        await serial<boolean>("removeItems", (cb) => storage.removeItems(keys.slice(i, i + 50), cb));
       }
     },
-    keys: () => promisify<string[]>((cb) => storage.getKeys(cb)),
+    keys: () => serial<string[]>("getKeys", (cb) => storage.getKeys(cb)),
   };
 }
 
@@ -66,22 +109,30 @@ const kv: KeyValue = hasCloudStorage() ? telegramKeyValue(getWebApp()!.CloudStor
 
 export const isSyncedStorage = hasCloudStorage();
 
-const CHUNK_SIZE = 4000;
+/**
+ * Values are capped at 4096; Telegram may count UTF-8 bytes rather than characters, and
+ * Cyrillic takes 2 bytes per letter, so chunks are sized by bytes with a safety margin.
+ */
+const CHUNK_BYTES = 3000;
 
-/** Splits text into chunks without cutting a surrogate pair (emoji) in half. */
+/** Splits text into chunks by UTF-8 size, never cutting a character (or emoji) in half. */
 function chunk(text: string) {
   const parts: string[] = [];
-  let start = 0;
-  while (start < text.length) {
-    let end = Math.min(start + CHUNK_SIZE, text.length);
-    const code = text.charCodeAt(end - 1);
-    if (end < text.length && code >= 0xd800 && code <= 0xdbff) {
-      end -= 1;
+  let current = "";
+  let bytes = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0)!;
+    const size = code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+    if (bytes + size > CHUNK_BYTES) {
+      parts.push(current);
+      current = "";
+      bytes = 0;
     }
-    parts.push(text.slice(start, end));
-    start = end;
+    current += char;
+    bytes += size;
   }
-  return parts.length > 0 ? parts : [""];
+  parts.push(current);
+  return parts;
 }
 
 /**
@@ -162,7 +213,9 @@ async function writeDoc(name: string) {
 
   const generation = previous ? (previous.generation + 1) % 1000 : 0;
   const parts = chunk(JSON.stringify(next.value));
-  await Promise.all(parts.map((part, i) => kv.set(chunkKey(name, generation, i), part)));
+  for (const [i, part] of parts.entries()) {
+    await kv.set(chunkKey(name, generation, i), part);
+  }
   await kv.set(name, `${generation}:${parts.length}`);
   headers.set(name, { generation, count: parts.length });
   if (staleKeys.length > 0) {
@@ -189,6 +242,22 @@ function enqueue(name: string) {
   return tracked;
 }
 
+/** Documents we know don't exist yet (e.g. a just-created playlist) skip the header lookup. */
+export function markNewDoc(name: string) {
+  if (!headers.has(name)) {
+    headers.set(name, null);
+  }
+}
+
+/** Small standalone settings (e.g. UI language) that live outside the document scheme. */
+export const SETTING_KEYS = ["lang"] as const;
+export async function loadSetting(key: (typeof SETTING_KEYS)[number]) {
+  return (await kv.get([key]))[key] || null;
+}
+export function saveSetting(key: (typeof SETTING_KEYS)[number], value: string) {
+  return kv.set(key, value);
+}
+
 export function saveDoc(name: string, value: unknown) {
   pending.set(name, { value });
   return enqueue(name);
@@ -202,7 +271,7 @@ export function deleteDoc(name: string) {
 /** Removes chunk keys that no current document header points at (e.g. from interrupted saves). */
 export async function collectGarbage(liveDocNames: string[]) {
   const liveKeys = () => {
-    const live = new Set<string>();
+    const live = new Set<string>(SETTING_KEYS);
     for (const name of liveDocNames) {
       live.add(name);
       const header = headers.get(name);

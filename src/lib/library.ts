@@ -1,6 +1,6 @@
 import { appendUniqueTracks, createPlaylist } from "../../shared/playlist-ops";
 import type { Playlist, Track } from "../../shared/types";
-import { collectGarbage, deleteDoc, loadDocs, saveDoc } from "./cloud-storage";
+import { collectGarbage, deleteDoc, loadDocs, markNewDoc, saveDoc } from "./cloud-storage";
 
 /**
  * Personal library persisted in Telegram CloudStorage.
@@ -74,6 +74,9 @@ export async function persistLibrary(previous: PersonalLibrary, next: PersonalLi
   const before = new Map(previous.playlists.map((playlist) => [playlist.id, playlist]));
 
   for (const playlist of next.playlists) {
+    if (!before.has(playlist.id)) {
+      markNewDoc(docName(playlist.id));
+    }
     if (before.get(playlist.id)?.tracks !== playlist.tracks) {
       writes.push(saveDoc(docName(playlist.id), playlist.tracks.map(pack)));
     }
@@ -94,7 +97,11 @@ export async function persistLibrary(previous: PersonalLibrary, next: PersonalLi
 }
 
 /** Moves tracks the bot collected into the "Inbox" playlist (creating it if needed). */
-export function mergeInbox(library: PersonalLibrary, incoming: Track[]) {
+export function mergeInbox(
+  library: PersonalLibrary,
+  incoming: Track[],
+  labels: { title: string; description: string },
+) {
   if (incoming.length === 0) {
     return { library, added: 0 };
   }
@@ -102,7 +109,7 @@ export function mergeInbox(library: PersonalLibrary, incoming: Track[]) {
   let inbox = library.playlists.find((playlist) => playlist.id === library.inboxId);
   let playlists = library.playlists;
   if (!inbox) {
-    inbox = createPlaylist("Inbox", "Tracks you send to the bot land here.");
+    inbox = createPlaylist(labels.title, labels.description);
     playlists = [inbox, ...playlists];
   }
 

@@ -2,10 +2,12 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import type { SessionUser } from "../../shared/types.js";
 import { AuthError, authenticate } from "../../server/lib/telegram-auth.js";
 
+/** `code` lets the client show a translated message; `message` is the English fallback. */
 export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -20,7 +22,12 @@ export function requireUser(request: VercelRequest): SessionUser {
   try {
     return authenticate(request.headers.authorization);
   } catch (error) {
-    throw new HttpError(401, error instanceof AuthError ? error.message : "Unauthorized.");
+    const expired = error instanceof AuthError && /expired/i.test(error.message);
+    throw new HttpError(
+      401,
+      error instanceof AuthError ? error.message : "Unauthorized.",
+      expired ? "expired" : "unauthorized",
+    );
   }
 }
 
@@ -48,10 +55,10 @@ export function route(
         return;
       }
       if (error instanceof HttpError) {
-        return response.status(error.status).json({ error: error.message });
+        return response.status(error.status).json({ error: error.message, code: error.code });
       }
       console.error(error);
-      return response.status(500).json({ error: "Something went wrong. Try again." });
+      return response.status(500).json({ error: "Something went wrong. Try again.", code: "generic" });
     }
   };
 }

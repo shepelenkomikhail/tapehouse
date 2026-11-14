@@ -1,5 +1,6 @@
 import type { PlayerState } from "../hooks/usePlayer";
 import { formatDuration } from "../lib/format";
+import { useI18n } from "../lib/i18n";
 import { Icon } from "./Icon";
 
 interface PlayerBarProps {
@@ -11,6 +12,7 @@ interface PlayerBarProps {
 }
 
 export function PlayerBar({ state, onToggle, onNext, onPrevious, onSeek }: PlayerBarProps) {
+  const { t } = useI18n();
   if (!state.track) {
     return null;
   }
@@ -19,7 +21,7 @@ export function PlayerBar({ state, onToggle, onNext, onPrevious, onSeek }: Playe
   const progress = Math.min(state.time / duration, 1);
 
   return (
-    <section className="player" aria-label="Player">
+    <section className="player" aria-label={t("player.label")}>
       <input
         className="player__seek"
         type="range"
@@ -28,7 +30,7 @@ export function PlayerBar({ state, onToggle, onNext, onPrevious, onSeek }: Playe
         step={1}
         value={Math.min(state.time, duration)}
         onChange={(event) => onSeek(Number(event.target.value))}
-        aria-label="Seek"
+        aria-label={t("player.seek")}
         style={{ "--progress": `${progress * 100}%` } as React.CSSProperties}
       />
       <div className="player__row">
@@ -39,18 +41,18 @@ export function PlayerBar({ state, onToggle, onNext, onPrevious, onSeek }: Playe
           </span>
         </div>
         <div className="player__controls">
-          <button className="icon-button" type="button" aria-label="Previous" onClick={onPrevious}>
+          <button className="icon-button" type="button" aria-label={t("player.prev")} onClick={onPrevious}>
             <Icon name="prev" />
           </button>
           <button
             className={`play-button${state.buffering ? " play-button--busy" : ""}`}
             type="button"
-            aria-label={state.playing ? "Pause" : "Play"}
+            aria-label={state.playing ? t("player.pause") : t("player.play")}
             onClick={onToggle}
           >
             <Icon name={state.playing ? "pause" : "play"} size={22} />
           </button>
-          <button className="icon-button" type="button" aria-label="Next" onClick={onNext}>
+          <button className="icon-button" type="button" aria-label={t("player.next")} onClick={onNext}>
             <Icon name="next" />
           </button>
         </div>
