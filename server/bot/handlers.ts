@@ -1,4 +1,4 @@
-import { appendUniqueTracks, createPlaylist, makeId } from "../../shared/playlist-ops.js";
+import { appendUniqueTracks, createPlaylist, insertChronologically, makeId } from "../../shared/playlist-ops.js";
 import type { Track } from "../../shared/types.js";
 import { mutateGroup, pushToInbox } from "../lib/blob-store.js";
 import { signFileId } from "../lib/telegram-auth.js";
@@ -24,7 +24,7 @@ interface TelegramChat {
   title?: string;
 }
 
-interface TelegramMessage {
+export interface TelegramMessage {
   message_id: number;
   text?: string;
   caption?: string;
@@ -32,7 +32,12 @@ interface TelegramMessage {
   chat: TelegramChat;
   reply_to_message?: TelegramMessage;
   /** Set when the message was forwarded; for channel posts it names the channel. */
-  forward_origin?: { type: "user" | "hidden_user" | "chat" | "channel"; chat?: TelegramChat; sender_chat?: TelegramChat };
+  forward_origin?: {
+    type: "user" | "hidden_user" | "chat" | "channel";
+    chat?: TelegramChat;
+    sender_chat?: TelegramChat;
+    message_id?: number;
+  };
   audio?: {
     file_id: string;
     file_unique_id?: string;
@@ -163,7 +168,7 @@ function splitLabel(raw?: string) {
 }
 
 /** Extracts a playable track from an audio message or an audio file sent as a document. */
-function trackFromMessage(message: TelegramMessage): Track | null {
+export function trackFromMessage(message: TelegramMessage): Track | null {
   const now = new Date().toISOString();
 
   if (message.audio) {
@@ -273,25 +278,37 @@ async function saveToInbox(message: TelegramMessage, track: Track) {
 }
 
 /** Adds a track to the first shared playlist of a group or channel (creating it if needed). */
-async function addToShared(chat: TelegramChat, track: Track) {
+/**
+ * Adds tracks to the first shared playlist of a group or channel (creating it if needed).
+ * "append" is for new posts; "history" places older posts in posting order.
+ */
+export async function addToShared(
+  chat: Pick<TelegramChat, "id" | "type" | "title">,
+  tracks: Track[],
+  mode: "append" | "history" = "append",
+) {
   const chatId = String(chat.id);
   return mutateGroup(chatId, chat.title, (group) => {
     const playlists =
       group.playlists.length > 0
         ? [...group.playlists]
         : [createPlaylist(chat.type === "channel" && chat.title ? chat.title : "Shared queue")];
-    const target = appendUniqueTracks(playlists[0], [track]);
-    playlists[0] = { ...target.playlist, updatedAt: new Date().toISOString() };
+    const target =
+      mode === "history" ? insertChronologically(playlists[0], tracks) : appendUniqueTracks(playlists[0], tracks);
+    if (target.addedCount > 0) {
+      playlists[0] = { ...target.playlist, updatedAt: new Date().toISOString() };
+    }
+    const highest = Math.max(group.lastMessageId ?? 0, ...tracks.map((track) => track.sourceMessageId ?? 0));
     return {
-      next: { ...group, playlists },
-      result: { title: playlists[0].title, added: target.addedCount > 0 },
+      next: { ...group, playlists, ...(highest > 0 ? { lastMessageId: highest } : {}) },
+      result: { title: playlists[0].title, added: target.addedCount > 0, addedCount: target.addedCount },
     };
   });
 }
 
 async function saveToGroup(message: TelegramMessage, track: Track) {
   const t = TEXT[langOf(message.from)];
-  const { title, added } = await addToShared(message.chat, track);
+  const { title, added } = await addToShared(message.chat, [track]);
   await reply(message, added ? t.addedGroup(track.title, title) : t.alreadyGroup(track.title, title));
 }
 
@@ -300,7 +317,7 @@ async function handleChannelPost(post: TelegramMessage) {
   // Nothing is posted back: the channel stays clean.
   const track = trackFromMessage(post);
   if (track) {
-    await addToShared(post.chat, track);
+    await addToShared(post.chat, [{ ...track, sourceMessageId: post.message_id }]);
   }
 }
 
@@ -355,7 +372,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate) {
       const membership = await checkChatMember(String(source.id), message.from.id);
       if (membership.ok && membership.admin) {
         const chat = { ...source, title: membership.title ?? source.title };
-        const { title, added } = await addToShared(chat, track);
+        const messageId = message.forward_origin?.message_id;
+        const { title, added } = await addToShared(chat, [{ ...track, sourceMessageId: messageId }], "history");
         await reply(message, added ? t.addedGroup(track.title, title) : t.alreadyGroup(track.title, title), [
           await sharedButton(message.chat, String(source.id), t.openShared(chat.title ?? title)),
         ]);

@@ -53,14 +53,22 @@ scripts/        setup-telegram.mjs: webhook, commands, menu button
 
 - **Private chat:** send or forward any audio (or an mp3/m4a/flac file) to the bot. It goes to your Inbox.
 - **Channels:** add the bot as an admin. Every audio posted in the channel is added to the channel's
-  shared playlist automatically (nothing is posted back). The bot can't read channel history, so to
-  add older tracks, forward them from the channel to the bot: as a channel admin they go straight
-  into the channel playlist. Forwarding any channel post to the bot also replies with a button that
-  opens the channel's playlists in the app.
+  shared playlist automatically (nothing is posted back), and the channel shows up in the app for
+  its members. **Older tracks:** in the app, open the channel playlist → ⋯ → «Импортировать всю
+  музыку из чата» (admins only). The Bot API has no history call, so `/api/import` walks post numbers
+  in batches: each post is forwarded silently to the admin's chat with the bot (which returns the
+  audio `file_id`), the copy is deleted, and audio is inserted in posting order. Forwarding single
+  old posts to the bot also works.
 - **Groups:** reply `/save@tapehouse_bot` to a track to add it to the group's shared playlist,
   `/inbox@tapehouse_bot` to keep it for yourself, or `/playlists@tapehouse_bot` for an "open" button.
   Captioning an upload with `@tapehouse_bot` also works if the bot can see group messages (privacy mode off).
 - Shared playlists can be opened by any member of that chat (checked with `getChatMember`).
+
+## Player
+
+The shuffle button in the player plays the current playlist in a random order (no artist twice in a
+row when avoidable) for this listening session only; the playlist's saved order doesn't change.
+«Перемешать список» on the playlist, by contrast, saves a new order.
 
 ## Languages
 

@@ -918,3 +918,54 @@ p {
 .section > .muted--pre {
   padding: 4px 16px 10px;
 }
+
+/* ---------- History import ---------- */
+
+.import-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.import-progress__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--separator);
+  overflow: hidden;
+}
+
+.import-progress__bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.import-progress__error {
+  color: var(--danger);
+}
+
+.shuffle-button {
+  position: relative;
+}
+
+.player__controls .shuffle-button {
+  color: var(--hint);
+}
+
+.player__controls .shuffle-button--on {
+  color: var(--accent);
+}
+
+.shuffle-button--on::after {
+  content: "";
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}

@@ -30,6 +30,7 @@ interface PlaylistScreenProps {
   busy: string | null;
   onBack: () => void;
   onPlay: (track: Track) => void;
+  onPlayAll: () => void;
   onShuffle: () => void;
   onReorder: (trackIds: string[]) => void;
   onSend: () => void;
@@ -94,7 +95,7 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
           className="button button--primary"
           type="button"
           disabled={playlist.tracks.length === 0}
-          onClick={() => playlist.tracks[0] && props.onPlay(playlist.tracks[0])}
+          onClick={props.onPlayAll}
         >
           <Icon name="play" size={16} /> {t("playlist.play")}
         </button>

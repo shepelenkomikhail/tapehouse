@@ -16,6 +16,8 @@ export interface Track {
   /** Server-issued signature that authorises `/api/stream` for this file. */
   sig: string;
   addedAt: string;
+  /** Post number in the channel/group it came from; keeps imported history in posting order. */
+  sourceMessageId?: number;
 }
 
 export interface Playlist {
@@ -34,6 +36,8 @@ export interface GroupLibrary {
   chatId: string;
   title: string;
   playlists: Playlist[];
+  /** Highest post number the bot has seen in this chat; the end point for history imports. */
+  lastMessageId?: number;
 }
 
 export interface SessionUser {

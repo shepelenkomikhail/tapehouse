@@ -125,6 +125,36 @@ export function appendUniqueTracks(playlist: Playlist, incoming: Track[]) {
   };
 }
 
+/**
+ * Adds older tracks (e.g. imported channel history) in posting order: each goes right after the
+ * last track with a smaller post number, or at the very start if there is none.
+ */
+export function insertChronologically(playlist: Playlist, incoming: Track[]) {
+  const known = new Set(playlist.tracks.map((track) => track.fileUniqueId ?? track.fileId));
+  const tracks = [...playlist.tracks];
+  let addedCount = 0;
+
+  const sorted = [...incoming].sort((a, b) => (a.sourceMessageId ?? 0) - (b.sourceMessageId ?? 0));
+  for (const track of sorted) {
+    const key = track.fileUniqueId ?? track.fileId;
+    if (known.has(key)) {
+      continue;
+    }
+    known.add(key);
+    const id = track.sourceMessageId ?? 0;
+    let position = 0;
+    tracks.forEach((existing, index) => {
+      if (existing.sourceMessageId !== undefined && existing.sourceMessageId < id) {
+        position = index + 1;
+      }
+    });
+    tracks.splice(position, 0, { ...track, id: makeId() });
+    addedCount += 1;
+  }
+
+  return { playlist: { ...playlist, tracks }, addedCount };
+}
+
 export class PlaylistOpError extends Error {}
 
 /** Applies an operation to a list of playlists and returns the new list. Never mutates input. */

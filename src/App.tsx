@@ -3,6 +3,7 @@ import { applyPlaylistOp, PlaylistOpError } from "../shared/playlist-ops";
 import type { GroupLibrary, Playlist, PlaylistOp, SessionUser, Track } from "../shared/types";
 import { Home, type GroupView } from "./components/Home";
 import { Icon } from "./components/Icon";
+import { ImportSheet } from "./components/ImportSheet";
 import { PlayerBar } from "./components/PlayerBar";
 import { PlaylistScreen } from "./components/PlaylistScreen";
 import { Sheet, SheetButton } from "./components/Sheet";
@@ -18,7 +19,8 @@ type SheetState =
   | { type: "track"; ref: PlaylistRef; track: Track }
   | { type: "copy"; ref: PlaylistRef; track: Track }
   | { type: "playlist"; ref: PlaylistRef }
-  | { type: "rename"; ref: PlaylistRef };
+  | { type: "rename"; ref: PlaylistRef }
+  | { type: "import"; chatId: string };
 
 const MAX_SEND = 100;
 
@@ -116,6 +118,18 @@ export default function App() {
       }
     },
     [applyGroup, setGroup, errorText],
+  );
+
+  /** Re-reads a group without the loading state, so an open playlist doesn't flicker. */
+  const refreshGroup = useCallback(
+    async (chatId: string) => {
+      try {
+        applyGroup(await api.getGroup(chatId));
+      } catch {
+        /* next refresh will catch up */
+      }
+    },
+    [applyGroup],
   );
 
   /** Apply a playlist operation to a personal or group library. Returns the resulting playlists. */
@@ -490,6 +504,12 @@ export default function App() {
                 player.play(view, track);
               }
             }}
+            onPlayAll={() => {
+              const first = player.firstTrack(current);
+              if (first) {
+                player.play(view, first);
+              }
+            }}
             onShuffle={() => void shuffle()}
             onReorder={(trackIds) => {
               haptic.tap();
@@ -513,6 +533,10 @@ export default function App() {
         onNext={player.next}
         onPrevious={player.previous}
         onSeek={player.seek}
+        onShuffle={() => {
+          haptic.select();
+          player.toggleShuffle();
+        }}
       />
 
       {sheet?.type === "track" ? (
@@ -587,6 +611,14 @@ export default function App() {
             {t("sheet.sendAll")}
           </SheetButton>
           {sheet.ref.kind === "group" ? (
+            <SheetButton
+              icon={<Icon name="inbox" />}
+              onClick={() => setSheet({ type: "import", chatId: (sheet.ref as { chatId: string }).chatId })}
+            >
+              {t("sheet.importHistory")}
+            </SheetButton>
+          ) : null}
+          {sheet.ref.kind === "group" ? (
             <SheetButton icon={<Icon name="close" />} onClick={() => forgetGroup((sheet.ref as { chatId: string }).chatId)}>
               {t("sheet.hideGroup")}
             </SheetButton>
@@ -611,6 +643,15 @@ export default function App() {
               description,
             });
           }}
+        />
+      ) : null}
+
+      {sheet?.type === "import" ? (
+        <ImportSheet
+          chatId={sheet.chatId}
+          chatTitle={groups[sheet.chatId]?.title ?? ""}
+          onClose={() => setSheet(null)}
+          onProgress={() => void refreshGroup(sheet.chatId)}
         />
       ) : null}
 

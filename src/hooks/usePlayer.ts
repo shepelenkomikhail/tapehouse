@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { smartShuffle } from "../../shared/playlist-ops";
 import type { Playlist, Track } from "../../shared/types";
 import { streamUrl } from "../lib/api";
 
@@ -24,11 +25,22 @@ export interface PlayerState {
   time: number;
   duration: number;
   error: string | null;
+  /** Plays in a random order for this session only; the playlist's saved order is untouched. */
+  shuffle: boolean;
+}
+
+const refKey = (ref: PlaylistRef) => (ref.kind === "personal" ? `p:${ref.playlistId}` : `g:${ref.chatId}:${ref.playlistId}`);
+
+/** Current track first, the rest smart-shuffled (no artist twice in a row when avoidable). */
+function shuffledOrder(playlist: Playlist, firstId?: string) {
+  const rest = playlist.tracks.filter((track) => track.id !== firstId);
+  return [...(firstId ? [firstId] : []), ...smartShuffle(rest).map((track) => track.id)];
 }
 
 /**
- * Plays a playlist with a single <audio> element. The queue is always the *current* order of the
- * source playlist, so reordering or shuffling while listening changes what plays next.
+ * Plays a playlist with a single <audio> element. Normally the queue is the *current* order of the
+ * source playlist, so reordering while listening changes what plays next. With shuffle on, a random
+ * order is kept in memory only (tracks added meanwhile are appended, removed ones skipped).
  */
 export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -43,9 +55,23 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
     time: 0,
     duration: 0,
     error: null,
+    shuffle: false,
   });
   const stateRef = useRef(state);
   stateRef.current = state;
+  const orderRef = useRef<{ key: string; ids: string[] } | null>(null);
+
+  /** The play order for a source: the shuffled order if active, otherwise the playlist order. */
+  const queueFor = useCallback((source: PlaylistRef, playlist: Playlist) => {
+    const order = orderRef.current;
+    if (!stateRef.current.shuffle || !order || order.key !== refKey(source)) {
+      return playlist.tracks;
+    }
+    const byId = new Map(playlist.tracks.map((track) => [track.id, track]));
+    const inOrder = order.ids.map((id) => byId.get(id)).filter((track): track is Track => Boolean(track));
+    const listed = new Set(order.ids);
+    return [...inOrder, ...playlist.tracks.filter((track) => !listed.has(track.id))];
+  }, []);
 
   const getAudio = useCallback(() => {
     if (!audioRef.current) {
@@ -57,6 +83,11 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
 
   const play = useCallback(
     (source: PlaylistRef, track: Track) => {
+      // Starting a different playlist with shuffle on gets a fresh random order from this track.
+      if (stateRef.current.shuffle && orderRef.current?.key !== refKey(source)) {
+        const playlist = resolveRef.current(source);
+        orderRef.current = playlist ? { key: refKey(source), ids: shuffledOrder(playlist, track.id) } : null;
+      }
       const audio = getAudio();
       const url = streamUrl(track);
       if (!audio.src.endsWith(url)) {
@@ -91,16 +122,36 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
       if (!playlist) {
         return;
       }
-      const index = playlist.tracks.findIndex((item) => item.id === track.id);
-      const next = playlist.tracks[index + offset];
+      const queue = queueFor(source, playlist);
+      const index = queue.findIndex((item) => item.id === track.id);
+      const next = queue[index + offset];
       if (next) {
         play(source, next);
       } else if (offset === 1) {
         getAudio().pause();
       }
     },
-    [getAudio, play],
+    [getAudio, play, queueFor],
   );
+
+  const toggleShuffle = useCallback(() => {
+    const { shuffle, source, track } = stateRef.current;
+    if (shuffle) {
+      orderRef.current = null;
+    } else if (source) {
+      const playlist = resolveRef.current(source);
+      orderRef.current = playlist ? { key: refKey(source), ids: shuffledOrder(playlist, track?.id) } : null;
+    }
+    setState((current) => ({ ...current, shuffle: !shuffle }));
+  }, []);
+
+  /** Picks where "Play" on a whole playlist starts: a random track when shuffle is on. */
+  const firstTrack = useCallback((playlist: Playlist) => {
+    if (!stateRef.current.shuffle || playlist.tracks.length === 0) {
+      return playlist.tracks[0];
+    }
+    return playlist.tracks[Math.floor(Math.random() * playlist.tracks.length)];
+  }, []);
 
   const toggle = useCallback(() => {
     const audio = getAudio();
@@ -137,6 +188,7 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
     audio.pause();
     audio.removeAttribute("src");
     audio.load();
+    orderRef.current = null;
     setState((current) => ({ ...current, source: null, track: null, playing: false, time: 0 }));
   }, [getAudio]);
 
@@ -208,6 +260,8 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
     previous,
     seek,
     stop,
+    toggleShuffle,
+    firstTrack,
     clearError: () => setState((current) => ({ ...current, error: null })),
   };
 }

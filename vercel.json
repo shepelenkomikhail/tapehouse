@@ -9,6 +9,9 @@
     },
     "api/send.ts": {
       "maxDuration": 120
+    },
+    "api/import.ts": {
+      "maxDuration": 60
     }
   },
   "regions": [

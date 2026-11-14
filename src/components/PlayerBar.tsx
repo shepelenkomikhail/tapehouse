@@ -9,9 +9,10 @@ interface PlayerBarProps {
   onNext: () => void;
   onPrevious: () => void;
   onSeek: (seconds: number) => void;
+  onShuffle: () => void;
 }
 
-export function PlayerBar({ state, onToggle, onNext, onPrevious, onSeek }: PlayerBarProps) {
+export function PlayerBar({ state, onToggle, onNext, onPrevious, onSeek, onShuffle }: PlayerBarProps) {
   const { t } = useI18n();
   if (!state.track) {
     return null;
@@ -41,6 +42,16 @@ export function PlayerBar({ state, onToggle, onNext, onPrevious, onSeek }: Playe
           </span>
         </div>
         <div className="player__controls">
+          <button
+            className={`icon-button shuffle-button${state.shuffle ? " shuffle-button--on" : ""}`}
+            type="button"
+            aria-label={t("player.shuffle")}
+            aria-pressed={state.shuffle}
+            title={t("player.shuffleHint")}
+            onClick={onShuffle}
+          >
+            <Icon name="shuffle" size={18} />
+          </button>
           <button className="icon-button" type="button" aria-label={t("player.prev")} onClick={onPrevious}>
             <Icon name="prev" />
           </button>
