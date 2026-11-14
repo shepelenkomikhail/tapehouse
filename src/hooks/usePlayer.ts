@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { smartShuffle } from "../../shared/playlist-ops";
 import type { Playlist, Track } from "../../shared/types";
 import { streamUrl } from "../lib/api";
+import { loadSetting, saveSetting } from "../lib/cloud-storage";
 
 export type PlaylistRef =
   | { kind: "personal"; playlistId: string }
@@ -30,6 +31,52 @@ export interface PlayerState {
 }
 
 const refKey = (ref: PlaylistRef) => (ref.kind === "personal" ? `p:${ref.playlistId}` : `g:${ref.chatId}:${ref.playlistId}`);
+
+/** Where listening stopped, so reopening the app shows the player ready to continue. */
+interface ResumePoint {
+  source: PlaylistRef;
+  trackId: string;
+  time: number;
+  shuffle?: boolean;
+  /** When it was saved (ms), so the newer of the device copy and the synced copy wins. */
+  at: number;
+}
+
+// Not "tapehouse:…": that prefix is the browser fallback for CloudStorage, whose cleanup would remove it.
+const LOCAL_RESUME_KEY = "tapehouse.resume";
+const CLOUD_SAVE_EVERY_MS = 20_000;
+
+function parseResume(raw: string | null | undefined): ResumePoint | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const value = JSON.parse(raw) as ResumePoint;
+    return value && value.source && typeof value.trackId === "string" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function readLocalResume() {
+  try {
+    return parseResume(localStorage.getItem(LOCAL_RESUME_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalResume(value: ResumePoint | null) {
+  try {
+    if (value) {
+      localStorage.setItem(LOCAL_RESUME_KEY, JSON.stringify(value));
+    } else {
+      localStorage.removeItem(LOCAL_RESUME_KEY);
+    }
+  } catch {
+    // storage blocked: resume just won't survive a restart on this device
+  }
+}
 
 /** Current track first, the rest smart-shuffled (no artist twice in a row when avoidable). */
 function shuffledOrder(playlist: Playlist, firstId?: string) {
@@ -60,6 +107,12 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const orderRef = useRef<{ key: string; ids: string[] } | null>(null);
+  /** A saved spot waiting for its playlist to load (group playlists arrive after startup). */
+  const pendingResumeRef = useRef<ResumePoint | null>(null);
+  /** Position to jump to once the restored track's audio is loaded. */
+  const pendingSeekRef = useRef<number | null>(null);
+  /** Set once the user does anything with the player; until then a restored spot isn't re-saved. */
+  const interactedRef = useRef(false);
 
   /** The play order for a source: the shuffled order if active, otherwise the playlist order. */
   const queueFor = useCallback((source: PlaylistRef, playlist: Playlist) => {
@@ -83,6 +136,9 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
 
   const play = useCallback(
     (source: PlaylistRef, track: Track) => {
+      interactedRef.current = true;
+      pendingResumeRef.current = null;
+      pendingSeekRef.current = null;
       // Starting a different playlist with shuffle on gets a fresh random order from this track.
       if (stateRef.current.shuffle && orderRef.current?.key !== refKey(source)) {
         const playlist = resolveRef.current(source);
@@ -136,6 +192,7 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
 
   const toggleShuffle = useCallback(() => {
     const { shuffle, source, track } = stateRef.current;
+    interactedRef.current = true;
     if (shuffle) {
       orderRef.current = null;
     } else if (source) {
@@ -155,8 +212,15 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
 
   const toggle = useCallback(() => {
     const audio = getAudio();
-    if (!stateRef.current.track) {
+    const { track } = stateRef.current;
+    if (!track) {
       return;
+    }
+    interactedRef.current = true;
+    if (!audio.getAttribute("src")) {
+      // A restored track: load it only now, then jump to where listening stopped.
+      audio.src = streamUrl(track);
+      setState((current) => ({ ...current, buffering: true, error: null }));
     }
     if (audio.paused) {
       void audio.play().catch(() => undefined);
@@ -165,23 +229,27 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
     }
   }, [getAudio]);
 
-  const previous = useCallback(() => {
-    const audio = getAudio();
-    if (audio.currentTime > 4) {
-      audio.currentTime = 0;
-    } else {
-      step(-1);
-    }
-  }, [getAudio, step]);
-
   const seek = useCallback(
     (seconds: number) => {
+      interactedRef.current = true;
       const audio = getAudio();
-      audio.currentTime = seconds;
+      if (audio.getAttribute("src") && pendingSeekRef.current === null) {
+        audio.currentTime = seconds;
+      } else {
+        pendingSeekRef.current = seconds; // restored track not loaded yet
+      }
       setState((current) => ({ ...current, time: seconds }));
     },
     [getAudio],
   );
+
+  const previous = useCallback(() => {
+    if (stateRef.current.time > 4) {
+      seek(0);
+    } else {
+      step(-1);
+    }
+  }, [seek, step]);
 
   const stop = useCallback(() => {
     const audio = getAudio();
@@ -189,8 +257,117 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
     audio.removeAttribute("src");
     audio.load();
     orderRef.current = null;
+    interactedRef.current = true;
+    pendingResumeRef.current = null;
+    pendingSeekRef.current = null;
     setState((current) => ({ ...current, source: null, track: null, playing: false, time: 0 }));
   }, [getAudio]);
+
+  // ---------- Remember where listening stopped ----------
+
+  /** Shows the saved track in the player, paused at the saved spot, once its playlist is loaded. */
+  const tryRestore = useCallback(() => {
+    const saved = pendingResumeRef.current;
+    if (!saved) {
+      return;
+    }
+    if (interactedRef.current) {
+      pendingResumeRef.current = null; // the user already started something else
+      return;
+    }
+    const playlist = resolveRef.current(saved.source);
+    const track = playlist?.tracks.find((item) => item.id === saved.trackId);
+    if (!playlist || !track) {
+      return; // not loaded yet (or gone); try again when playlists change
+    }
+    pendingResumeRef.current = null;
+    pendingSeekRef.current = saved.time > 0 ? saved.time : null;
+    orderRef.current = saved.shuffle ? { key: refKey(saved.source), ids: shuffledOrder(playlist, track.id) } : null;
+    setState((current) => ({
+      ...current,
+      source: saved.source,
+      track,
+      playing: false,
+      buffering: false,
+      time: saved.time,
+      duration: track.durationSec,
+      error: null,
+      shuffle: Boolean(saved.shuffle),
+    }));
+  }, []);
+
+  // Load the saved spot: this device's copy right away, the synced one (other devices) when it arrives.
+  useEffect(() => {
+    const local = readLocalResume();
+    pendingResumeRef.current = local;
+    tryRestore();
+    let cancelled = false;
+    loadSetting("resume")
+      .then((raw) => {
+        const synced = parseResume(raw);
+        if (cancelled || !synced || interactedRef.current || (local && local.at >= synced.at)) {
+          return;
+        }
+        pendingResumeRef.current = synced; // newer, e.g. from listening on another device
+        tryRestore();
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [tryRestore]);
+
+  // Group playlists load after startup: retry whenever the playlists change.
+  useEffect(() => {
+    tryRestore();
+  }, [resolve, tryRestore]);
+
+  const lastLocalSave = useRef(0);
+  const lastCloudSave = useRef(0);
+  const saveResume = useCallback((toCloud: boolean) => {
+    const { source, track, time, shuffle } = stateRef.current;
+    if (!interactedRef.current) {
+      return; // nothing new since the saved spot was restored (or it's still loading)
+    }
+    const value: ResumePoint | null =
+      source && track ? { source, trackId: track.id, time: Math.floor(time), shuffle: shuffle || undefined, at: Date.now() } : null;
+    writeLocalResume(value);
+    lastLocalSave.current = Date.now();
+    if (toCloud) {
+      lastCloudSave.current = Date.now();
+      void saveSetting("resume", value ? JSON.stringify(value) : "").catch(() => undefined);
+    }
+  }, []);
+
+  // Save on every track/playlist/shuffle/pause change, and while playing every few seconds
+  // (device) or every 20 s (synced), so closing the app at any moment loses almost nothing.
+  useEffect(() => {
+    saveResume(true);
+  }, [state.track?.id, state.source, state.shuffle, state.playing, saveResume]);
+
+  useEffect(() => {
+    if (!state.playing) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastLocalSave.current >= 3000) {
+      saveResume(now - lastCloudSave.current >= CLOUD_SAVE_EVERY_MS);
+    }
+  }, [state.time, state.playing, saveResume]);
+
+  useEffect(() => {
+    const flush = () => {
+      if (document.visibilityState === "hidden" || !document.visibilityState) {
+        saveResume(true);
+      }
+    };
+    document.addEventListener("visibilitychange", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", flush);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [saveResume]);
 
   useEffect(() => {
     const audio = getAudio();
@@ -202,8 +379,16 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
       pause: () => update({ playing: false }),
       waiting: () => update({ buffering: true }),
       canplay: () => update({ buffering: false }),
-      timeupdate: () => update({ time: audio.currentTime }),
+      timeupdate: () => {
+        if (pendingSeekRef.current === null) {
+          update({ time: audio.currentTime });
+        }
+      },
       loadedmetadata: () => {
+        if (pendingSeekRef.current !== null) {
+          audio.currentTime = pendingSeekRef.current; // continue a restored track where it stopped
+          pendingSeekRef.current = null;
+        }
         if (Number.isFinite(audio.duration) && audio.duration > 0) {
           update({ duration: audio.duration });
         }

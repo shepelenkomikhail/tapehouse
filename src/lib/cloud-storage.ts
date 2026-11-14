@@ -274,7 +274,7 @@ export function markNewDoc(name: string) {
 }
 
 /** Small standalone settings (e.g. UI language) that live outside the document scheme. */
-export const SETTING_KEYS = ["lang", "diag"] as const;
+export const SETTING_KEYS = ["lang", "diag", "resume"] as const;
 export async function loadSetting(key: (typeof SETTING_KEYS)[number]) {
   return (await kv.get([key]))[key] || null;
 }
