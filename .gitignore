@@ -1,0 +1,11 @@
+node_modules
+dist
+.vercel
+_backup
+.npm-cache
+.playwright-browsers
+.DS_Store
+
+# secrets (local env files)
+.env*
+!.env.example
