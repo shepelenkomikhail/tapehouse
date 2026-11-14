@@ -8,6 +8,24 @@ import type { Playlist, PlaylistOp, Track } from "./types.js";
 const ACCENTS = ["#f35f4c", "#1ba784", "#ffb400", "#4b63ff", "#e84ba5", "#00a3c4"];
 const ID_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
+/** First user-visible character (a whole emoji like 🗽 or 👨‍👩‍👧, not half of one). */
+export function firstGrapheme(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    const segment = new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(trimmed)[Symbol.iterator]().next();
+    return segment.done ? "" : segment.value.segment;
+  }
+  return Array.from(trimmed)[0] ?? "";
+}
+
+/** Keeps only the first emoji/character of user input, so covers stay a single glyph. */
+export function normalizeEmoji(input: string) {
+  return firstGrapheme(input).slice(0, 16);
+}
+
 /** Short ids using only characters allowed in Telegram CloudStorage keys. */
 export function makeId(length = 10) {
   const bytes = new Uint8Array(length);
@@ -182,6 +200,14 @@ export function applyPlaylistOp(playlists: Playlist[], op: PlaylistOp): Playlist
           op.description !== undefined ? op.description.trim().slice(0, 200) : current.description,
         updatedAt: now,
       };
+      if (op.emoji !== undefined) {
+        const emoji = normalizeEmoji(op.emoji);
+        if (emoji) {
+          next.emoji = emoji;
+        } else {
+          delete next.emoji; // empty string clears the cover emoji
+        }
+      }
       break;
     case "deletePlaylist":
       next = null;

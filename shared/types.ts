@@ -25,6 +25,8 @@ export interface Playlist {
   title: string;
   description: string;
   accent: string;
+  /** Optional emoji shown as the cover instead of the first letter. */
+  emoji?: string;
   createdAt: string;
   updatedAt: string;
   lastShuffleAt?: string;
@@ -58,7 +60,7 @@ export interface InboxResponse {
 /** Operations accepted by POST /api/group. Personal playlists use the same ops client-side. */
 export type PlaylistOp =
   | { op: "createPlaylist"; title: string; description?: string }
-  | { op: "updatePlaylist"; playlistId: string; title?: string; description?: string }
+  | { op: "updatePlaylist"; playlistId: string; title?: string; description?: string; emoji?: string }
   | { op: "deletePlaylist"; playlistId: string }
   | { op: "reorder"; playlistId: string; trackIds: string[] }
   | { op: "shuffle"; playlistId: string }

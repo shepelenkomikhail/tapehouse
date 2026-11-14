@@ -419,17 +419,42 @@ p {
   color: var(--hint);
 }
 
+/* Phones: "Play" spans a full row, the other two share the row below. Wider: three columns.
+   Columns are minmax(0, …) so nothing can push past the screen edge. */
 .toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 0 16px 12px;
-  overflow-x: auto;
-  scrollbar-width: none;
+}
+
+.toolbar .button--primary {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 480px) {
+  .toolbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toolbar .button--primary {
+    grid-column: auto;
+  }
 }
 
 .toolbar .button {
-  flex: 1 0 auto;
+  min-width: 0;
+  padding: 0 8px;
 }
+
+.button__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
 
 .search {
   display: block;
@@ -968,4 +993,52 @@ p {
   margin-left: -2px;
   border-radius: 50%;
   background: var(--accent);
+}
+
+/* ---------- Emoji covers ---------- */
+
+.cover--emoji {
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.cover--large.cover--emoji {
+  font-size: 40px;
+}
+
+.emoji-editor {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.emoji-choice {
+  display: grid;
+  place-items: center;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.emoji-choice--none {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--hint);
+}
+
+.emoji-choice--active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-secondary));
 }

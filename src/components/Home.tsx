@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import type { Playlist } from "../../shared/types";
 import { sameRef, type PlaylistRef } from "../hooks/usePlayer";
 import { DEFAULT_INBOX_TITLES, LANGS, useI18n } from "../lib/i18n";
+import { Cover } from "./Cover";
 import { Icon } from "./Icon";
 
 export interface GroupView {
@@ -46,9 +47,7 @@ function PlaylistItem({
   return (
     <li>
       <button className={`list-item${active ? " list-item--active" : ""}`} type="button" onClick={onClick}>
-        <span className="cover" style={{ background: playlist.accent }} aria-hidden="true">
-          {icon ? <Icon name={icon} size={20} /> : title.slice(0, 1).toUpperCase()}
-        </span>
+        <Cover playlist={playlist} title={title} fallbackIcon={icon} />
         <span className="list-item__text">
           <strong>{title}</strong>
           <span>

@@ -17,6 +17,7 @@ import {
 import { useState } from "react";
 import type { Playlist, Track } from "../../shared/types";
 import { useI18n } from "../lib/i18n";
+import { Cover } from "./Cover";
 import { Icon } from "./Icon";
 import { TrackRow } from "./TrackRow";
 
@@ -24,6 +25,7 @@ interface PlaylistScreenProps {
   playlist: Playlist;
   title: string;
   description: string;
+  icon?: "inbox";
   context: string;
   currentTrackId: string | null;
   isPlaying: boolean;
@@ -73,9 +75,7 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
         <button className="icon-button back-button" type="button" aria-label={t("playlist.back")} onClick={props.onBack}>
           <Icon name="back" />
         </button>
-        <span className="cover cover--large" style={{ background: playlist.accent }} aria-hidden="true">
-          {props.title.slice(0, 1).toUpperCase()}
-        </span>
+        <Cover playlist={playlist} title={props.title} fallbackIcon={props.icon} large />
         <div className="playlist__meta">
           <span className="eyebrow">{props.context}</span>
           <h2>{props.title}</h2>
@@ -97,25 +97,30 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
           disabled={playlist.tracks.length === 0}
           onClick={props.onPlayAll}
         >
-          <Icon name="play" size={16} /> {t("playlist.play")}
+          <Icon name="play" size={16} />
+          <span className="button__label">{t("playlist.play")}</span>
         </button>
         <button
           className="button"
           type="button"
           disabled={playlist.tracks.length < 2 || props.busy === "shuffle"}
           onClick={props.onShuffle}
+          aria-label={t("playlist.shuffle")}
           title={t("playlist.shuffleHint")}
         >
-          <Icon name="shuffle" size={16} /> {t("playlist.shuffle")}
+          <Icon name="shuffle" size={16} />
+          <span className="button__label">{t("playlist.shuffle")}</span>
         </button>
         <button
           className="button"
           type="button"
           disabled={playlist.tracks.length === 0 || props.busy === "send"}
           onClick={props.onSend}
+          aria-label={t("playlist.send")}
           title={t("playlist.sendHint")}
         >
-          <Icon name="send" size={16} /> {props.busy === "send" ? t("playlist.sending") : t("playlist.send")}
+          <Icon name="send" size={16} />
+          <span className="button__label">{props.busy === "send" ? t("playlist.sending") : t("playlist.send")}</span>
         </button>
       </div>
 

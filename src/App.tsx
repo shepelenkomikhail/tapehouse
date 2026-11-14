@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { applyPlaylistOp, PlaylistOpError } from "../shared/playlist-ops";
+import { applyPlaylistOp, normalizeEmoji, PlaylistOpError } from "../shared/playlist-ops";
 import type { GroupLibrary, Playlist, PlaylistOp, SessionUser, Track } from "../shared/types";
 import { Home, type GroupView } from "./components/Home";
+import { Cover } from "./components/Cover";
 import { Icon } from "./components/Icon";
 import { ImportSheet } from "./components/ImportSheet";
 import { PlayerBar } from "./components/PlayerBar";
@@ -487,6 +488,7 @@ export default function App() {
             key={`${view.kind}:${view.playlistId}`}
             playlist={current}
             title={titleOf(view)}
+            icon={isInbox(view) ? "inbox" : undefined}
             description={
               isInbox(view) && DEFAULT_INBOX_DESCRIPTIONS.has(current.description)
                 ? t("inbox.description")
@@ -634,13 +636,14 @@ export default function App() {
           playlist={resolve(sheet.ref)}
           title={titleOf(sheet.ref)}
           onClose={() => setSheet(null)}
-          onSave={(title, description) => {
+          onSave={(title, description, emoji) => {
             setSheet(null);
             void runOp(targetOf(sheet.ref), {
               op: "updatePlaylist",
               playlistId: sheet.ref.playlistId,
               title,
               description,
+              emoji,
             });
           }}
         />
@@ -664,6 +667,12 @@ export default function App() {
   );
 }
 
+const EMOJI_CHOICES = [
+  "🎵", "🎧", "🎸", "🎹", "🥁", "🎤", "🎷", "💿",
+  "🔥", "❤️", "✨", "🌙", "☀️", "🌊", "🌃", "🍂",
+  "❄️", "🚗", "🏃", "💤", "🧘", "🎉", "☕", "🗽",
+];
+
 function RenameSheet({
   playlist,
   title: currentTitle,
@@ -673,22 +682,67 @@ function RenameSheet({
   playlist?: Playlist;
   title: string;
   onClose: () => void;
-  onSave: (title: string, description: string) => void;
+  onSave: (title: string, description: string, emoji: string) => void;
 }) {
   const { t } = useI18n();
   const [title, setTitle] = useState(currentTitle);
   const [description, setDescription] = useState(playlist?.description ?? "");
+  const [emoji, setEmoji] = useState(playlist?.emoji ?? "");
+  const [custom, setCustom] = useState("");
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    onSave(title, description);
+    onSave(title, description, emoji);
   };
 
   return (
     <Sheet title={t("sheet.editTitle")} onClose={onClose}>
       <form className="form" onSubmit={submit}>
+        <div className="field">
+          <span>{t("sheet.cover")}</span>
+          <div className="emoji-editor">
+            <Cover playlist={{ accent: playlist?.accent ?? "#888", emoji: emoji || undefined }} title={title} large />
+            <div className="emoji-grid" role="radiogroup" aria-label={t("sheet.cover")}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!emoji}
+                className={`emoji-choice emoji-choice--none${!emoji ? " emoji-choice--active" : ""}`}
+                onClick={() => setEmoji("")}
+                title={t("sheet.noEmoji")}
+              >
+                Aa
+              </button>
+              {EMOJI_CHOICES.map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  role="radio"
+                  aria-checked={emoji === choice}
+                  className={`emoji-choice${emoji === choice ? " emoji-choice--active" : ""}`}
+                  onClick={() => setEmoji(choice)}
+                >
+                  {choice}
+                </button>
+              ))}
+            </div>
+          </div>
+          <input
+            className="input"
+            value={custom}
+            placeholder={t("sheet.customEmoji")}
+            maxLength={16}
+            onChange={(e) => {
+              setCustom(e.target.value);
+              const picked = normalizeEmoji(e.target.value);
+              if (picked) {
+                setEmoji(picked);
+              }
+            }}
+          />
+        </div>
         <label className="field">
           <span>{t("sheet.name")}</span>
-          <input className="input" autoFocus value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
+          <input className="input" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
         </label>
         <label className="field">
           <span>{t("sheet.description")}</span>
