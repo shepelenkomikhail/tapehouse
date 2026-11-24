@@ -31,6 +31,25 @@ export async function callTelegram<T>(method: string, payload: unknown): Promise
   return result.result as T;
 }
 
+/** Same as callTelegram, but uploads a file in a multipart request (bots may upload up to 50 MB). */
+export async function callTelegramUpload<T>(
+  method: string,
+  fields: Record<string, string | number>,
+  file: { field: string; data: Blob; name: string },
+): Promise<T> {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    form.set(key, String(value));
+  }
+  form.set(file.field, file.data, file.name);
+  const response = await fetch(`${TELEGRAM_API}/bot${requireBotToken()}/${method}`, { method: "POST", body: form });
+  const result = (await response.json()) as { ok: boolean; result?: T; description?: string; error_code?: number };
+  if (!result.ok) {
+    throw new TelegramApiError(result.description ?? `Telegram ${method} failed.`, result.error_code);
+  }
+  return result.result as T;
+}
+
 // Function instances are reused between requests, so small in-memory caches cut Telegram calls.
 const fileCache = new Map<string, { url: string; size?: number; path: string; expires: number }>();
 const memberCache = new Map<string, { ok: boolean; admin: boolean; title?: string; type?: string; expires: number }>();

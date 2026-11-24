@@ -1,4 +1,4 @@
-import type { GroupLibrary, InboxResponse, PlaylistOp, Track } from "../../shared/types";
+import type { GroupLibrary, InboxResponse, PlaylistOp, SearchResponse, SearchResult, Track } from "../../shared/types";
 import { getWebApp } from "./telegram";
 
 export class ApiError extends Error {
@@ -53,6 +53,10 @@ export const api = {
     }>(`/api/import?chat=${encodeURIComponent(chatId)}`, { method: "POST", body: { from, misses } }),
   report: (event: string, detail: string, client: Record<string, string | number | boolean | null>) =>
     request<{ ok: boolean }>("/api/log", { method: "POST", body: { event, detail: detail.slice(0, 2000), client } }),
+  searchMusic: (query: string) => request<SearchResponse>(`/api/search?q=${encodeURIComponent(query)}`),
+  /** The bot sends the found track to the user's chat; the returned Track goes into the Inbox. */
+  addFound: (result: Pick<SearchResult, "source" | "id">) =>
+    request<{ track: Track }>("/api/search", { method: "POST", body: { source: result.source, id: result.id } }),
   sendToChat: (title: string, tracks: Track[]) =>
     request<{ sent: number }>("/api/send", {
       method: "POST",

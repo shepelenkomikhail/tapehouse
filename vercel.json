@@ -12,6 +12,9 @@
     },
     "api/import.ts": {
       "maxDuration": 60
+    },
+    "api/search.ts": {
+      "maxDuration": 60
     }
   },
   "regions": [

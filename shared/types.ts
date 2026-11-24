@@ -69,3 +69,27 @@ export type PlaylistOp =
   | { op: "sortByAdded"; playlistId: string; order: "newest" | "oldest" }
   | { op: "removeTrack"; playlistId: string; trackId: string }
   | { op: "addTracks"; playlistId: string; tracks: Track[] };
+
+/** Where "Find music" looks. Only catalogs whose authors allow downloading are used. */
+export type MusicSource = "audius" | "archive" | "jamendo";
+
+/** One track found by GET /api/search. Adding it makes the bot send the file to the user. */
+export interface SearchResult {
+  source: MusicSource;
+  /** Source-specific id; the server re-resolves it, the client never sends a file URL. */
+  id: string;
+  title: string;
+  performer: string;
+  durationSec: number;
+  /** Human-readable licence, e.g. "CC BY 4.0" or "Download allowed by the artist". */
+  license: string;
+  pageUrl: string;
+  artworkUrl?: string;
+  /** Direct audio link for listening before adding. */
+  previewUrl?: string;
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+  sources: MusicSource[];
+}

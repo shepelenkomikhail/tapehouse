@@ -29,6 +29,7 @@ interface HomeProps {
   /** "All music": every track from every playlist, each once. */
   allMusic: Playlist;
   onInfo: () => void;
+  onFind: () => void;
 }
 
 function PlaylistItem({
@@ -161,6 +162,15 @@ export function Home(props: HomeProps) {
             onClick={props.onInfo}
           >
             <Icon name="info" size={22} />
+          </button>
+          <button
+            className="icon-button info-button"
+            type="button"
+            aria-label={t("find.open")}
+            title={t("find.open")}
+            onClick={props.onFind}
+          >
+            <Icon name="search" size={22} />
           </button>
           <LanguageSwitch />
           <button className="button" type="button" onClick={props.onOpenBot} disabled={!props.botUsername}>

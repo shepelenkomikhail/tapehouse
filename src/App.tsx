@@ -5,6 +5,7 @@ import { Home, type GroupView } from "./components/Home";
 import { Cover } from "./components/Cover";
 import { Icon } from "./components/Icon";
 import { ImportSheet } from "./components/ImportSheet";
+import { FindMusicSheet } from "./components/FindMusicSheet";
 import { InfoSheet } from "./components/InfoSheet";
 import { MergeSheet, type PlaylistChoice } from "./components/MergeSheet";
 import { PlayerBar } from "./components/PlayerBar";
@@ -26,7 +27,8 @@ type SheetState =
   | { type: "merge"; ref: PlaylistRef }
   | { type: "rename"; ref: PlaylistRef }
   | { type: "import"; chatId: string }
-  | { type: "info" };
+  | { type: "info" }
+  | { type: "find" };
 
 const MAX_SEND = 100;
 /** Most tracks one group request accepts (see api/group.ts); bigger copies go in batches. */
@@ -616,6 +618,7 @@ export default function App() {
           onImport={(chatId) => setSheet({ type: "import", chatId })}
           allMusic={allMusic}
           onInfo={() => setSheet({ type: "info" })}
+          onFind={() => setSheet({ type: "find" })}
         />
       </aside>
 
@@ -840,6 +843,27 @@ export default function App() {
           initial={sheet.ref}
           onClose={() => setSheet(null)}
           onMerge={mergePlaylists}
+        />
+      ) : null}
+
+      {sheet?.type === "find" ? (
+        <FindMusicSheet
+          onClose={() => setSheet(null)}
+          onPreviewStart={() => {
+            if (player.state.playing) {
+              player.toggle();
+            }
+          }}
+          onError={(text) => notify(text, true)}
+          onAdded={(track) => {
+            const current = libraryRef.current;
+            if (!current) {
+              return;
+            }
+            const merged = mergeInbox(current, [track], { title: t("inbox.title"), description: t("inbox.description") });
+            commitPersonal(merged.library);
+            notify(t("toast.found", { title: track.title }));
+          }}
         />
       ) : null}
 

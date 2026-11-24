@@ -25,6 +25,7 @@ interface TelegramWebApp {
   expand(): void;
   disableVerticalSwipes?(): void;
   openTelegramLink(url: string): void;
+  openLink?(url: string): void;
   showConfirm?(message: string, callback: (confirmed: boolean) => void): void;
   CloudStorage: TelegramCloudStorage;
   BackButton: {
@@ -90,6 +91,16 @@ export function confirmAction(message: string): Promise<boolean> {
     return new Promise((resolve) => webApp.showConfirm!(message, resolve));
   }
   return Promise.resolve(window.confirm(message));
+}
+
+/** Opens a web page outside the Mini App (Telegram's in-app browser when available). */
+export function openExternal(url: string) {
+  const webApp = getWebApp();
+  if (webApp?.openLink) {
+    webApp.openLink(url);
+  } else {
+    window.open(url, "_blank", "noopener");
+  }
 }
 
 export function openBotChat(botUsername?: string) {

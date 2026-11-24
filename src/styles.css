@@ -1117,3 +1117,113 @@ p {
 .sheet .info .muted {
   padding: 0;
 }
+
+/* ---------- Find music ---------- */
+
+.find {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 16px 12px;
+}
+
+.find__form {
+  display: flex;
+  gap: 8px;
+}
+
+.find__form .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.find__results {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -16px;
+  padding: 0;
+  list-style: none;
+}
+
+.find__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
+}
+
+.find__cover {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--bg-secondary) center / cover no-repeat;
+  color: #fff;
+  cursor: pointer;
+}
+
+.find__cover:disabled {
+  cursor: default;
+}
+
+.find__cover-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.55);
+}
+
+.find__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.find__text strong,
+.find__text span,
+.find__text a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.find__text strong {
+  font-weight: 600;
+}
+
+.find__text span,
+.find__text a {
+  color: var(--hint);
+  font-size: 13px;
+}
+
+.find__text a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.find__add {
+  color: var(--accent);
+}
+
+.find__add--done {
+  color: var(--hint);
+}
+
+.sheet .find .muted {
+  padding: 0;
+}
+
+.spinner--small {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}

@@ -20,6 +20,8 @@ export function getEnv() {
      * Format: "<telegram user id>:<first name>". Ignored on Vercel production.
      */
     devUser: process.env.VERCEL_ENV === "production" ? undefined : read("TAPEHOUSE_DEV_USER"),
+    /** Optional: enables Jamendo in "Find music" (free key from devportal.jamendo.com). */
+    jamendoClientId: read("JAMENDO_CLIENT_ID"),
     /** Separates prod/preview/dev data inside the single Blob store. */
     dataPrefix: process.env.VERCEL_ENV ?? "development",
   };
