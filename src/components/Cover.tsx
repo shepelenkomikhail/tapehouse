@@ -14,7 +14,7 @@ export function Cover({
 }: {
   playlist: Pick<Playlist, "accent" | "emoji">;
   title: string;
-  fallbackIcon?: "inbox";
+  fallbackIcon?: "inbox" | "library";
   large?: boolean;
 }) {
   const glyph = playlist.emoji ? null : firstGrapheme(title).toUpperCase();

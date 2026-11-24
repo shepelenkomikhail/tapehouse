@@ -1042,3 +1042,78 @@ p {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, var(--bg-secondary));
 }
+
+/* ---------- Info and merge sheets ---------- */
+
+.info-button {
+  color: var(--link);
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 16px 12px;
+}
+
+.info__section h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.info__section p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -16px;
+  padding: 0;
+  list-style: none;
+}
+
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.check-item:hover {
+  background: var(--hover);
+}
+
+.check-item input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.check-item__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.check-item__text strong,
+.check-item__text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.check-item__text span {
+  color: var(--hint);
+  font-size: 13px;
+}
+
+.sheet .form .muted,
+.sheet .info .muted {
+  padding: 0;
+}

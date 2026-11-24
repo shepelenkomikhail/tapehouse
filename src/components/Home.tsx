@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { Playlist } from "../../shared/types";
-import { sameRef, type PlaylistRef } from "../hooks/usePlayer";
+import { ALL_REF, sameRef, type PlaylistRef } from "../hooks/usePlayer";
 import { DEFAULT_INBOX_TITLES, LANGS, useI18n } from "../lib/i18n";
 import { Cover } from "./Cover";
 import { Icon } from "./Icon";
@@ -26,6 +26,9 @@ interface HomeProps {
   onCreate: (target: { kind: "personal" } | { kind: "group"; chatId: string }, title: string) => void;
   onOpenBot: () => void;
   onImport: (chatId: string) => void;
+  /** "All music": every track from every playlist, each once. */
+  allMusic: Playlist;
+  onInfo: () => void;
 }
 
 function PlaylistItem({
@@ -38,7 +41,7 @@ function PlaylistItem({
 }: {
   playlist: Playlist;
   title: string;
-  icon?: "inbox";
+  icon?: "inbox" | "library";
   active: boolean;
   playing: boolean;
   onClick: () => void;
@@ -150,6 +153,15 @@ export function Home(props: HomeProps) {
           </p>
         </div>
         <div className="home__actions">
+          <button
+            className="icon-button info-button"
+            type="button"
+            aria-label={t("home.info")}
+            title={t("home.info")}
+            onClick={props.onInfo}
+          >
+            <Icon name="info" size={22} />
+          </button>
           <LanguageSwitch />
           <button className="button" type="button" onClick={props.onOpenBot} disabled={!props.botUsername}>
             <Icon name="send" size={16} /> {t("home.addMusic")}
@@ -159,6 +171,18 @@ export function Home(props: HomeProps) {
 
       <section className="section">
         <h2 className="section__title">{t("home.myPlaylists")}</h2>
+        {props.allMusic.tracks.length > 0 ? (
+          <ul className="list">
+            <PlaylistItem
+              playlist={props.allMusic}
+              title={t("all.title")}
+              icon="library"
+              active={sameRef(selected, ALL_REF)}
+              playing={sameRef(nowPlaying, ALL_REF)}
+              onClick={() => onOpen(ALL_REF)}
+            />
+          </ul>
+        ) : null}
         {ordered.length === 0 ? (
           <div className="hint">
             <Icon name="music" size={28} />

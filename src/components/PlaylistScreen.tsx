@@ -25,10 +25,15 @@ interface PlaylistScreenProps {
   playlist: Playlist;
   title: string;
   description: string;
-  icon?: "inbox";
+  icon?: "inbox" | "library";
   context: string;
   currentTrackId: string | null;
   isPlaying: boolean;
+  /** Music from this playlist is playing right now: the main button turns into "Stop". */
+  playingHere: boolean;
+  /** Built automatically ("All music"): no reordering, and "Shuffle" only changes the play order. */
+  readOnly?: boolean;
+  emptyText?: string;
   busy: string | null;
   onBack: () => void;
   onPlay: (track: Track) => void;
@@ -96,9 +101,10 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
           type="button"
           disabled={playlist.tracks.length === 0}
           onClick={props.onPlayAll}
+          aria-pressed={props.playingHere}
         >
-          <Icon name="play" size={16} />
-          <span className="button__label">{t("playlist.play")}</span>
+          <Icon name={props.playingHere ? "pause" : "play"} size={16} />
+          <span className="button__label">{t(props.playingHere ? "playlist.stop" : "playlist.play")}</span>
         </button>
         <button
           className="button"
@@ -106,7 +112,7 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
           disabled={playlist.tracks.length < 2 || props.busy === "shuffle"}
           onClick={props.onShuffle}
           aria-label={t("playlist.shuffle")}
-          title={t("playlist.shuffleHint")}
+          title={t(props.readOnly ? "playlist.shuffleAllHint" : "playlist.shuffleHint")}
         >
           <Icon name="shuffle" size={16} />
           <span className="button__label">{t("playlist.shuffle")}</span>
@@ -137,7 +143,7 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
       {playlist.tracks.length === 0 ? (
         <div className="hint">
           <Icon name="music" size={28} />
-          <p>{t("playlist.empty")}</p>
+          <p>{props.emptyText ?? t("playlist.empty")}</p>
         </div>
       ) : (
         <DndContext
@@ -155,7 +161,7 @@ export function PlaylistScreen(props: PlaylistScreenProps) {
                   index={playlist.tracks.indexOf(track)}
                   isCurrent={track.id === props.currentTrackId}
                   isPlaying={props.isPlaying}
-                  canReorder={!query}
+                  canReorder={!query && !props.readOnly}
                   onPlay={() => props.onPlay(track)}
                   onMore={() => props.onTrackMore(track)}
                 />

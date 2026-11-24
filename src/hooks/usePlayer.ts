@@ -6,7 +6,11 @@ import { loadSetting, saveSetting } from "../lib/cloud-storage";
 
 export type PlaylistRef =
   | { kind: "personal"; playlistId: string }
-  | { kind: "group"; chatId: string; playlistId: string };
+  | { kind: "group"; chatId: string; playlistId: string }
+  /** "All music": every track from every playlist, each file once. Read-only, built on the fly. */
+  | { kind: "all"; playlistId: "all" };
+
+export const ALL_REF: PlaylistRef = { kind: "all", playlistId: "all" };
 
 export function sameRef(a: PlaylistRef | null, b: PlaylistRef | null) {
   return (
@@ -14,7 +18,7 @@ export function sameRef(a: PlaylistRef | null, b: PlaylistRef | null) {
     !!b &&
     a.kind === b.kind &&
     a.playlistId === b.playlistId &&
-    (a.kind === "personal" || a.chatId === (b as { chatId: string }).chatId)
+    (a.kind !== "group" || a.chatId === (b as { chatId: string }).chatId)
   );
 }
 
@@ -30,7 +34,8 @@ export interface PlayerState {
   shuffle: boolean;
 }
 
-const refKey = (ref: PlaylistRef) => (ref.kind === "personal" ? `p:${ref.playlistId}` : `g:${ref.chatId}:${ref.playlistId}`);
+const refKey = (ref: PlaylistRef) =>
+  ref.kind === "group" ? `g:${ref.chatId}:${ref.playlistId}` : ref.kind === "all" ? "all" : `p:${ref.playlistId}`;
 
 /** Where listening stopped, so reopening the app shows the player ready to continue. */
 interface ResumePoint {
@@ -209,6 +214,22 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
     }
     return playlist.tracks[Math.floor(Math.random() * playlist.tracks.length)];
   }, []);
+
+  /** Plays a playlist in a fresh random order (session only), starting from a random track. */
+  const playShuffled = useCallback(
+    (source: PlaylistRef) => {
+      const playlist = resolveRef.current(source);
+      if (!playlist || playlist.tracks.length === 0) {
+        return;
+      }
+      const first = playlist.tracks[Math.floor(Math.random() * playlist.tracks.length)];
+      orderRef.current = { key: refKey(source), ids: shuffledOrder(playlist, first.id) };
+      stateRef.current = { ...stateRef.current, shuffle: true };
+      setState((current) => ({ ...current, shuffle: true }));
+      play(source, first);
+    },
+    [play],
+  );
 
   const toggle = useCallback(() => {
     const audio = getAudio();
@@ -446,6 +467,7 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
     seek,
     stop,
     toggleShuffle,
+    playShuffled,
     firstTrack,
     clearError: () => setState((current) => ({ ...current, error: null })),
   };

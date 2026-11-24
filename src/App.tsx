@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { applyPlaylistOp, normalizeEmoji, PlaylistOpError } from "../shared/playlist-ops";
+import { applyPlaylistOp, makeId, normalizeEmoji, PlaylistOpError } from "../shared/playlist-ops";
 import type { GroupLibrary, Playlist, PlaylistOp, SessionUser, Track } from "../shared/types";
 import { Home, type GroupView } from "./components/Home";
 import { Cover } from "./components/Cover";
 import { Icon } from "./components/Icon";
 import { ImportSheet } from "./components/ImportSheet";
+import { InfoSheet } from "./components/InfoSheet";
+import { MergeSheet, type PlaylistChoice } from "./components/MergeSheet";
 import { PlayerBar } from "./components/PlayerBar";
 import { PlaylistScreen } from "./components/PlaylistScreen";
 import { Sheet, SheetButton } from "./components/Sheet";
-import { sameRef, usePlayer, type PlaylistRef } from "./hooks/usePlayer";
+import { ALL_REF, sameRef, usePlayer, type PlaylistRef } from "./hooks/usePlayer";
 import { api, ApiError } from "./lib/api";
 import { cloudSelfTest, isSyncedStorage } from "./lib/cloud-storage";
 import { DEFAULT_INBOX_DESCRIPTIONS, DEFAULT_INBOX_TITLES, errorMessage, useI18n } from "./lib/i18n";
@@ -20,10 +22,16 @@ type SheetState =
   | { type: "track"; ref: PlaylistRef; track: Track }
   | { type: "copy"; ref: PlaylistRef; track: Track }
   | { type: "playlist"; ref: PlaylistRef }
+  | { type: "copyAll"; ref: PlaylistRef }
+  | { type: "merge"; ref: PlaylistRef }
   | { type: "rename"; ref: PlaylistRef }
-  | { type: "import"; chatId: string };
+  | { type: "import"; chatId: string }
+  | { type: "info" };
 
 const MAX_SEND = 100;
+/** Most tracks one group request accepts (see api/group.ts); bigger copies go in batches. */
+const GROUP_BATCH = 500;
+const trackKey = (track: Track) => track.fileUniqueId ?? track.fileId;
 
 export default function App() {
   const { t, count } = useI18n();
@@ -61,14 +69,46 @@ export default function App() {
 
   // ---------- Data access ----------
 
+  /**
+   * "All music": every track of every personal and shared playlist, each file once, newest first.
+   * Built on the fly, so it never costs storage and is always up to date.
+   */
+  const allMusic = useMemo<Playlist>(() => {
+    const seen = new Set<string>();
+    const tracks: Track[] = [];
+    const sources = [
+      ...(library?.playlists ?? []),
+      ...(library?.groups ?? []).flatMap((known) => {
+        const group = groups[known.chatId];
+        return group?.status === "ready" ? group.playlists : [];
+      }),
+    ];
+    for (const playlist of sources) {
+      for (const track of playlist.tracks) {
+        if (!seen.has(trackKey(track))) {
+          seen.add(trackKey(track));
+          tracks.push(track);
+        }
+      }
+    }
+    const ordered = tracks
+      .map((track, index) => ({ track, index, time: Date.parse(track.addedAt) || 0 }))
+      .sort((a, b) => b.time - a.time || a.index - b.index)
+      .map(({ track }) => track);
+    return { id: "all", title: "All music", description: "", accent: "#5b5bd6", createdAt: "", updatedAt: "", tracks: ordered };
+  }, [library?.playlists, library?.groups, groups]);
+
   const resolve = useCallback(
     (ref: PlaylistRef): Playlist | undefined => {
+      if (ref.kind === "all") {
+        return allMusic;
+      }
       if (ref.kind === "personal") {
         return library?.playlists.find((playlist) => playlist.id === ref.playlistId);
       }
       return groups[ref.chatId]?.playlists.find((playlist) => playlist.id === ref.playlistId);
     },
-    [library, groups],
+    [library, groups, allMusic],
   );
 
   const player = usePlayer(resolve);
@@ -174,8 +214,14 @@ export default function App() {
     [applyGroup, commitPersonal, loadGroup, notify, setGroup, errorText],
   );
 
-  const targetOf = (ref: PlaylistRef): Target =>
-    ref.kind === "personal" ? { kind: "personal" } : { kind: "group", chatId: ref.chatId };
+  /** Where a playlist's changes go; "All music" is built automatically and has none. */
+  const targetOf = (ref: PlaylistRef): Target | null =>
+    ref.kind === "personal" ? { kind: "personal" } : ref.kind === "group" ? { kind: "group", chatId: ref.chatId } : null;
+
+  const runOpOn = (ref: PlaylistRef, op: PlaylistOp) => {
+    const target = targetOf(ref);
+    return target ? runOp(target, op) : Promise.resolve(null);
+  };
 
   // ---------- Startup ----------
 
@@ -330,19 +376,24 @@ export default function App() {
   const current = view ? resolve(view) : undefined;
   const isInbox = (ref: PlaylistRef) => ref.kind === "personal" && ref.playlistId === library?.inboxId;
   const titleOf = (ref: PlaylistRef) => {
+    if (ref.kind === "all") {
+      return t("all.title");
+    }
     const stored = resolve(ref)?.title ?? "";
     return isInbox(ref) && DEFAULT_INBOX_TITLES.has(stored) ? t("inbox.title") : stored;
   };
   const currentContext =
     view?.kind === "group"
       ? groups[view.chatId]?.title ?? t("playlist.group")
-      : view && isInbox(view)
+      : view?.kind === "all"
+        ? t("all.context")
+        : view && isInbox(view)
         ? t("inbox.title")
         : t("playlist.my");
 
   // If the open playlist disappears (deleted elsewhere), fall back to home.
   useEffect(() => {
-    if (view && library && !resolve(view) && (view.kind === "personal" || groups[view.chatId]?.status === "ready")) {
+    if (view && library && !resolve(view) && (view.kind !== "group" || groups[view.chatId]?.status === "ready")) {
       setView(null);
     }
   }, [view, library, groups, resolve]);
@@ -366,8 +417,14 @@ export default function App() {
     if (!view) {
       return;
     }
+    if (view.kind === "all") {
+      // Can't be reordered: play everything in a random order instead.
+      haptic.select();
+      player.playShuffled(view);
+      return;
+    }
     setBusy("shuffle");
-    await runOp(targetOf(view), { op: "shuffle", playlistId: view.playlistId });
+    await runOpOn(view, { op: "shuffle", playlistId: view.playlistId });
     setBusy(null);
     haptic.success();
   };
@@ -396,7 +453,7 @@ export default function App() {
   const copyTrack = async (track: Track, ref: PlaylistRef) => {
     setSheet(null);
     const before = resolve(ref)?.tracks.length ?? 0;
-    const result = await runOp(targetOf(ref), { op: "addTracks", playlistId: ref.playlistId, tracks: [track] });
+    const result = await runOpOn(ref, { op: "addTracks", playlistId: ref.playlistId, tracks: [track] });
     const after = result?.find((playlist) => playlist.id === ref.playlistId);
     if (after) {
       const title = titleOf(ref) || after.title;
@@ -414,7 +471,73 @@ export default function App() {
       player.stop();
     }
     setView(null);
-    await runOp(targetOf(ref), { op: "deletePlaylist", playlistId: ref.playlistId });
+    await runOpOn(ref, { op: "deletePlaylist", playlistId: ref.playlistId });
+  };
+
+  /** Copies every track of one playlist into another, skipping ones already there. */
+  const addAllTo = async (source: PlaylistRef, destination: PlaylistRef) => {
+    setSheet(null);
+    const tracks = resolve(source)?.tracks ?? [];
+    const target = targetOf(destination);
+    if (tracks.length === 0 || !target) {
+      return;
+    }
+    const before = resolve(destination)?.tracks.length ?? 0;
+    const batch = target.kind === "group" ? GROUP_BATCH : tracks.length;
+    let result: Playlist[] | null = null;
+    setBusy("copyAll");
+    for (let start = 0; start < tracks.length; start += batch) {
+      result = await runOp(target, {
+        op: "addTracks",
+        playlistId: destination.playlistId,
+        tracks: tracks.slice(start, start + batch),
+      });
+      if (!result) {
+        break;
+      }
+    }
+    setBusy(null);
+    const after = result?.find((playlist) => playlist.id === destination.playlistId);
+    if (after) {
+      const title = titleOf(destination) || after.title;
+      const added = after.tracks.length - before;
+      notify(
+        added > 0
+          ? t("toast.addedAll", { title, count: count(added, "unit.track") })
+          : t("toast.allAlreadyIn", { title }),
+      );
+    }
+  };
+
+  /** Creates a new personal playlist with the tracks of all picked playlists, each file once. */
+  const mergePlaylists = (refs: PlaylistRef[], title: string) => {
+    setSheet(null);
+    const current = libraryRef.current;
+    if (!current) {
+      return;
+    }
+    try {
+      const playlists = applyPlaylistOp(current.playlists, { op: "createPlaylist", title });
+      const created = playlists[playlists.length - 1];
+      const seen = new Set<string>();
+      const tracks: Track[] = [];
+      for (const ref of refs) {
+        for (const track of resolve(ref)?.tracks ?? []) {
+          if (!seen.has(trackKey(track))) {
+            seen.add(trackKey(track));
+            // Keep the original "date added", so sorting by date still means something.
+            tracks.push({ ...track, id: makeId() });
+          }
+        }
+      }
+      const merged = { ...created, tracks };
+      playlists[playlists.length - 1] = merged;
+      commitPersonal({ ...current, playlists });
+      setView({ kind: "personal", playlistId: merged.id });
+      notify(t("toast.merged", { title: merged.title, count: count(tracks.length, "unit.track") }));
+    } catch (error) {
+      notify(error instanceof PlaylistOpError ? error.message : errorText(error), true);
+    }
   };
 
   const forgetGroup = (chatId: string) => {
@@ -452,10 +575,11 @@ export default function App() {
     );
   }
 
-  const copyTargets: { ref: PlaylistRef; label: string; group?: string }[] = [
+  const copyTargets: PlaylistChoice[] = [
     ...library.playlists.map((playlist) => ({
       ref: { kind: "personal", playlistId: playlist.id } as PlaylistRef,
       label: titleOf({ kind: "personal", playlistId: playlist.id }),
+      trackCount: playlist.tracks.length,
     })),
     ...groupList.flatMap((group) =>
       group.status === "ready"
@@ -463,10 +587,13 @@ export default function App() {
             ref: { kind: "group", chatId: group.chatId, playlistId: playlist.id } as PlaylistRef,
             label: playlist.title,
             group: group.title,
+            trackCount: playlist.tracks.length,
           }))
         : [],
     ),
   ];
+  const isAll = (ref: PlaylistRef) => ref.kind === "all";
+  const playingHere = !!view && sameRef(player.state.source, view) && player.state.playing;
 
   return (
     <div className={`app${view ? " app--detail" : ""}${player.state.track ? " app--with-player" : ""}`}>
@@ -487,6 +614,8 @@ export default function App() {
           onCreate={(target, title) => void createPlaylist(target, title)}
           onOpenBot={() => openBotChat(session.botUsername)}
           onImport={(chatId) => setSheet({ type: "import", chatId })}
+          allMusic={allMusic}
+          onInfo={() => setSheet({ type: "info" })}
         />
       </aside>
 
@@ -496,12 +625,17 @@ export default function App() {
             key={`${view.kind}:${view.playlistId}`}
             playlist={current}
             title={titleOf(view)}
-            icon={isInbox(view) ? "inbox" : undefined}
+            icon={isAll(view) ? "library" : isInbox(view) ? "inbox" : undefined}
             description={
-              isInbox(view) && DEFAULT_INBOX_DESCRIPTIONS.has(current.description)
-                ? t("inbox.description")
-                : current.description
+              isAll(view)
+                ? t("all.description")
+                : isInbox(view) && DEFAULT_INBOX_DESCRIPTIONS.has(current.description)
+                  ? t("inbox.description")
+                  : current.description
             }
+            readOnly={isAll(view)}
+            emptyText={isAll(view) ? t("all.empty") : undefined}
+            playingHere={playingHere}
             context={currentContext}
             currentTrackId={sameRef(player.state.source, view) ? player.state.track?.id ?? null : null}
             isPlaying={player.state.playing}
@@ -515,6 +649,11 @@ export default function App() {
               }
             }}
             onPlayAll={() => {
+              // While this playlist plays the button reads "Stop"; after stopping it continues from there.
+              if (sameRef(player.state.source, view) && player.state.track) {
+                player.toggle();
+                return;
+              }
               const first = player.firstTrack(current);
               if (first) {
                 player.play(view, first);
@@ -523,7 +662,7 @@ export default function App() {
             onShuffle={() => void shuffle()}
             onReorder={(trackIds) => {
               haptic.tap();
-              void runOp(targetOf(view), { op: "reorder", playlistId: view.playlistId, trackIds });
+              void runOpOn(view, { op: "reorder", playlistId: view.playlistId, trackIds });
             }}
             onSend={() => void sendToChat(view)}
             onTrackMore={(track) => setSheet({ type: "track", ref: view, track })}
@@ -568,20 +707,22 @@ export default function App() {
           >
             {t("sheet.sendToChat")}
           </SheetButton>
-          <SheetButton
-            icon={<Icon name="trash" />}
-            danger
-            onClick={() => {
-              setSheet(null);
-              void runOp(targetOf(sheet.ref), {
-                op: "removeTrack",
-                playlistId: sheet.ref.playlistId,
-                trackId: sheet.track.id,
-              });
-            }}
-          >
-            {t("sheet.removeFromPlaylist")}
-          </SheetButton>
+          {isAll(sheet.ref) ? null : (
+            <SheetButton
+              icon={<Icon name="trash" />}
+              danger
+              onClick={() => {
+                setSheet(null);
+                void runOpOn(sheet.ref, {
+                  op: "removeTrack",
+                  playlistId: sheet.ref.playlistId,
+                  trackId: sheet.track.id,
+                });
+              }}
+            >
+              {t("sheet.removeFromPlaylist")}
+            </SheetButton>
+          )}
         </Sheet>
       ) : null}
 
@@ -608,9 +749,11 @@ export default function App() {
 
       {sheet?.type === "playlist" ? (
         <Sheet title={titleOf(sheet.ref)} onClose={() => setSheet(null)}>
-          <SheetButton icon={<Icon name="edit" />} onClick={() => setSheet({ type: "rename", ref: sheet.ref })}>
-            {t("sheet.rename")}
-          </SheetButton>
+          {isAll(sheet.ref) ? null : (
+            <SheetButton icon={<Icon name="edit" />} onClick={() => setSheet({ type: "rename", ref: sheet.ref })}>
+              {t("sheet.rename")}
+            </SheetButton>
+          )}
           <SheetButton
             icon={<Icon name="send" />}
             onClick={() => {
@@ -620,13 +763,25 @@ export default function App() {
           >
             {t("sheet.sendAll")}
           </SheetButton>
-          {(["newest", "oldest"] as const).map((order) => (
+          <SheetButton
+            icon={<Icon name="copy" />}
+            disabled={(resolve(sheet.ref)?.tracks.length ?? 0) === 0 || busy === "copyAll"}
+            onClick={() => setSheet({ type: "copyAll", ref: sheet.ref })}
+          >
+            {t("sheet.addAllTo")}
+          </SheetButton>
+          {isAll(sheet.ref) ? null : (
+            <SheetButton icon={<Icon name="merge" />} onClick={() => setSheet({ type: "merge", ref: sheet.ref })}>
+              {t("sheet.merge")}
+            </SheetButton>
+          )}
+          {isAll(sheet.ref) ? null : (["newest", "oldest"] as const).map((order) => (
             <SheetButton
               key={order}
               icon={<Icon name="sort" />}
               onClick={() => {
                 setSheet(null);
-                void runOp(targetOf(sheet.ref), { op: "sortByAdded", playlistId: sheet.ref.playlistId, order }).then((result) => {
+                void runOpOn(sheet.ref, { op: "sortByAdded", playlistId: sheet.ref.playlistId, order }).then((result) => {
                   if (result) {
                     haptic.success();
                     notify(t("toast.sorted"));
@@ -650,11 +805,45 @@ export default function App() {
               {t("sheet.hideGroup")}
             </SheetButton>
           ) : null}
-          <SheetButton icon={<Icon name="trash" />} danger onClick={() => void deletePlaylist(sheet.ref)}>
-            {t("sheet.deletePlaylist")}
-          </SheetButton>
+          {isAll(sheet.ref) ? null : (
+            <SheetButton icon={<Icon name="trash" />} danger onClick={() => void deletePlaylist(sheet.ref)}>
+              {t("sheet.deletePlaylist")}
+            </SheetButton>
+          )}
         </Sheet>
       ) : null}
+
+      {sheet?.type === "copyAll" ? (
+        <Sheet title={t("sheet.addAllTitle")} subtitle={titleOf(sheet.ref)} onClose={() => setSheet(null)}>
+          {copyTargets.filter((target) => !sameRef(target.ref, sheet.ref)).length === 0 ? (
+            <p className="muted">{t("sheet.createFirst")}</p>
+          ) : (
+            copyTargets
+              .filter((target) => !sameRef(target.ref, sheet.ref))
+              .map((target) => (
+                <SheetButton
+                  key={`${target.ref.kind}:${target.ref.playlistId}`}
+                  icon={<Icon name={target.group ? "users" : "music"} />}
+                  onClick={() => void addAllTo(sheet.ref, target.ref)}
+                >
+                  {target.label}
+                  {target.group ? <small> · {target.group}</small> : null}
+                </SheetButton>
+              ))
+          )}
+        </Sheet>
+      ) : null}
+
+      {sheet?.type === "merge" ? (
+        <MergeSheet
+          choices={copyTargets}
+          initial={sheet.ref}
+          onClose={() => setSheet(null)}
+          onMerge={mergePlaylists}
+        />
+      ) : null}
+
+      {sheet?.type === "info" ? <InfoSheet botUsername={session.botUsername} onClose={() => setSheet(null)} /> : null}
 
       {sheet?.type === "rename" ? (
         <RenameSheet
@@ -663,7 +852,7 @@ export default function App() {
           onClose={() => setSheet(null)}
           onSave={(title, description, emoji) => {
             setSheet(null);
-            void runOp(targetOf(sheet.ref), {
+            void runOpOn(sheet.ref, {
               op: "updatePlaylist",
               playlistId: sheet.ref.playlistId,
               title,

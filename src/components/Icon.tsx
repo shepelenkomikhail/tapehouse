@@ -18,6 +18,9 @@ const PATHS = {
   users: "M16 19v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 17.5V19M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM20 19v-1.5a3.5 3.5 0 0 0-2.5-3.35M15.5 4.15a3 3 0 0 1 0 5.7",
   sort: "M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4",
   close: "M6 6l12 12M18 6 6 18",
+  info: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 16.5v-5M12 7.5h.01",
+  merge: "M6 4v4a4 4 0 0 0 4 4h4a4 4 0 0 1 4 4v4M18 4v4a4 4 0 0 1-4 4M6 20v-4",
+  library: "M4 4h3v16H4zM9.5 4h3v16h-3zM15 5.2l2.9-.8 3.6 14.5-2.9.8z",
 } as const;
 
 export type IconName = keyof typeof PATHS;
