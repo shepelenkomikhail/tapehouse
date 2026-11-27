@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Track } from "../../shared/types";
@@ -11,11 +12,15 @@ interface TrackRowProps {
   isCurrent: boolean;
   isPlaying: boolean;
   canReorder: boolean;
-  onPlay: () => void;
-  onMore: () => void;
+  onPlay: (track: Track) => void;
+  onMore: (track: Track) => void;
 }
 
-export function TrackRow({ track, index, isCurrent, isPlaying, canReorder, onPlay, onMore }: TrackRowProps) {
+/**
+ * Memoized: a playlist can hold thousands of rows, and the player updates several times a second,
+ * so a row only re-renders when its own props change (callbacks must be stable).
+ */
+export const TrackRow = memo(function TrackRow({ track, index, isCurrent, isPlaying, canReorder, onPlay, onMore }: TrackRowProps) {
   const { t } = useI18n();
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: track.id, disabled: !canReorder });
@@ -39,7 +44,7 @@ export function TrackRow({ track, index, isCurrent, isPlaying, canReorder, onPla
         </button>
       ) : null}
 
-      <button className="track__main" type="button" onClick={onPlay}>
+      <button className="track__main" type="button" onClick={() => onPlay(track)}>
         <span className="track__index" aria-hidden="true">
           {isCurrent && isPlaying ? <span className="eq"><i /><i /><i /></span> : index + 1}
         </span>
@@ -50,9 +55,9 @@ export function TrackRow({ track, index, isCurrent, isPlaying, canReorder, onPla
         <span className="track__time">{track.durationSec ? formatDuration(track.durationSec) : ""}</span>
       </button>
 
-      <button className="icon-button" type="button" aria-label={t("track.more", { title: track.title })} onClick={onMore}>
+      <button className="icon-button" type="button" aria-label={t("track.more", { title: track.title })} onClick={() => onMore(track)}>
         <Icon name="more" size={18} />
       </button>
     </li>
   );
-}
+});

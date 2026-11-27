@@ -28,6 +28,8 @@ interface HomeProps {
   onImport: (chatId: string) => void;
   /** "All music": every track from every playlist, each once. */
   allMusic: Playlist;
+  /** Personal playlists whose tracks are still loading. */
+  loadingIds: ReadonlySet<string>;
   onInfo: () => void;
   onFind: () => void;
 }
@@ -38,6 +40,7 @@ function PlaylistItem({
   icon,
   active,
   playing,
+  loading = false,
   onClick,
 }: {
   playlist: Playlist;
@@ -45,6 +48,7 @@ function PlaylistItem({
   icon?: "inbox" | "library";
   active: boolean;
   playing: boolean;
+  loading?: boolean;
   onClick: () => void;
 }) {
   const { t, count, runtime } = useI18n();
@@ -56,8 +60,9 @@ function PlaylistItem({
         <span className="list-item__text">
           <strong>{title}</strong>
           <span>
-            {count(playlist.tracks.length, "unit.track")}
-            {seconds > 0 ? ` · ${runtime(seconds)}` : ""}
+            {loading && playlist.tracks.length === 0
+              ? t("home.loading")
+              : `${count(playlist.tracks.length, "unit.track")}${loading ? "…" : seconds > 0 ? ` · ${runtime(seconds)}` : ""}`}
           </span>
         </span>
         {playing ? (
@@ -146,14 +151,8 @@ export function Home(props: HomeProps) {
   return (
     <div className="home">
       <header className="home__header">
-        <div className="home__title">
+        <div className="home__top">
           <h1>Tapehouse</h1>
-          <p>
-            {t("home.greeting", { name: props.userName })}
-            {props.synced ? "" : t("home.previewMode")}
-          </p>
-        </div>
-        <div className="home__actions">
           <button
             className="icon-button info-button"
             type="button"
@@ -163,18 +162,25 @@ export function Home(props: HomeProps) {
           >
             <Icon name="info" size={22} />
           </button>
-          <button
-            className="icon-button info-button"
-            type="button"
-            aria-label={t("find.open")}
-            title={t("find.open")}
-            onClick={props.onFind}
-          >
-            <Icon name="search" size={22} />
-          </button>
+        </div>
+        <div className="home__greeting">
+          <p>
+            {t("home.greeting", { name: props.userName })}
+            {props.synced ? "" : t("home.previewMode")}
+          </p>
           <LanguageSwitch />
-          <button className="button" type="button" onClick={props.onOpenBot} disabled={!props.botUsername}>
+        </div>
+        <div className="home__actions">
+          <button
+            className="button button--primary"
+            type="button"
+            onClick={props.onOpenBot}
+            disabled={!props.botUsername}
+          >
             <Icon name="send" size={16} /> {t("home.addMusic")}
+          </button>
+          <button className="button" type="button" onClick={props.onFind}>
+            <Icon name="search" size={16} /> {t("find.open")}
           </button>
         </div>
       </header>
@@ -189,6 +195,7 @@ export function Home(props: HomeProps) {
               icon="library"
               active={sameRef(selected, ALL_REF)}
               playing={sameRef(nowPlaying, ALL_REF)}
+              loading={props.loadingIds.size > 0}
               onClick={() => onOpen(ALL_REF)}
             />
           </ul>
@@ -211,6 +218,7 @@ export function Home(props: HomeProps) {
                   icon={isInbox ? "inbox" : undefined}
                   active={sameRef(selected, ref)}
                   playing={sameRef(nowPlaying, ref)}
+                  loading={props.loadingIds.has(playlist.id)}
                   onClick={() => onOpen(ref)}
                 />
               );

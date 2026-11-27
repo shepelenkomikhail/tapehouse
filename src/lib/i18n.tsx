@@ -113,6 +113,7 @@ const ru = {
   "toast.alreadyIn": "Уже есть в «{title}»",
   "confirm.delete": "Удалить «{title}»? Это нельзя отменить.",
   "playlist.stop": "Остановить",
+  "playlist.loadingMore": "Загружаются остальные треки… Уже загруженные можно слушать.",
   "playlist.shuffleAllHint": "Играть всю музыку в случайном порядке",
   "all.title": "Вся музыка",
   "all.description": "Все треки из всех ваших плейлистов, групп и каналов. Каждый трек один раз.",
@@ -148,7 +149,7 @@ const ru = {
     "• «Слушать» запускает плейлист. Пока музыка играет, кнопка называется «Остановить».\n• Нажмите на трек, чтобы включить его, и ещё раз, чтобы поставить на паузу.\n• «Перемешать» на плейлисте сохраняет новый порядок (один исполнитель не звучит дважды подряд). Кнопка перемешивания в плеере внизу играет вразнобой, не меняя порядок плейлиста.\n• Tapehouse помнит, где вы остановились, даже если открыть его на другом устройстве.\n• Файлы больше 20 МБ здесь не играют (ограничение Telegram). Нажмите «В чат», и бот пришлёт треки для встроенного плеера Telegram.",
   "info.groupsTitle": "Группы и каналы",
   "info.groupsBody":
-    "• Добавляйте бота {bot} сразу администратором. Обычным подписчиком бота в канал добавить нельзя: Telegram этого не позволяет, и бот не увидит посты.\n• Канал: настройки канала → Администраторы → Добавить администратора → найдите {bot}. Каждый новый аудиопост сам попадёт в общий плейлист канала.\n• Группа: тоже добавьте бота администратором. Ответьте /save@{botName} на трек, чтобы добавить его в плейлист группы, /inbox@{botName} — чтобы сохранить в свои «Входящие». /playlists@{botName} пришлёт кнопку с плейлистами.\n• Музыку, опубликованную раньше, добавит «Импортировать всю музыку». Импорт доступен только администраторам и не работает, если в чате запрещена пересылка.\n• Группа или канал появляется здесь сам, если вы его участник. Убрать из списка: «⋯» на его плейлисте → «Скрыть эту группу из списка».\n• Общие плейлисты видят и меняют все участники. Их треки не попадают во «Входящие», но есть во «Вся музыка».",
+    "• Добавляйте бота {bot} сразу администратором. Обычным подписчиком бота в канал добавить нельзя: Telegram этого не позволяет, и бот не увидит посты.\n• Канал: настройки канала → Администраторы → Добавить администратора → найдите {bot}. Каждый новый аудиопост сам попадёт в общий плейлист канала.\n• Группа: тоже добавьте бота администратором. Ответьте /save@{botName} на трек, чтобы добавить его в плейлист группы, /inbox@{botName} — чтобы сохранить в свои «Входящие». /playlists@{botName} пришлёт кнопку с плейлистами.\n• Музыку, опубликованную раньше, добавит «Импортировать всю музыку». Импортировать может любой участник (админом должен быть только бот); не работает, если в чате запрещена пересылка.\n• Группа или канал появляется здесь сам, если вы его участник. Убрать из списка: «⋯» на его плейлисте → «Скрыть эту группу из списка».\n• Общие плейлисты видят и меняют все участники. Их треки не попадают во «Входящие», но есть во «Вся музыка».",
   "info.otherTitle": "Прочее",
   "info.otherBody":
     "• RU / EN вверху переключает язык.\n• Если что-то не загрузилось, закройте и снова откройте Tapehouse.",
@@ -170,6 +171,20 @@ const ru = {
   "err.download_failed": "Не удалось скачать этот трек. Попробуйте другой.",
   "unit.track": "трек|трека|треков",
   "unit.newTrack": "новый трек|новых трека|новых треков",
+  "unit.song": "песня|песни|песен",
+  "unit.copy": "лишняя копия|лишние копии|лишних копий",
+  "sheet.duplicates": "Найти дубликаты",
+  "dupes.title": "Дубликаты",
+  "dupes.loading": "Плейлист ещё загружается. Откройте проверку, когда загрузятся все треки.",
+  "dupes.none": "Дубликатов не найдено.",
+  "dupes.close": "Готово",
+  "dupes.found": "Повторяются {songs}, всего {copies}. Дубликат — тот же файл или то же название и исполнитель (без учёта регистра). Отмеченные будут удалены, первая копия остаётся.",
+  "dupes.allNote": "Во «Вся музыка» удаление убирает трек из всех плейлистов, где он есть, включая общие плейлисты групп и каналов.",
+  "dupes.keep": "оставить",
+  "dupes.remove": "удалить",
+  "dupes.removeSelected": "Удалить отмеченные ({count})",
+  "dupes.keepAll": "Не удалять",
+  "toast.dupesRemoved": "Удалено дубликатов: {count}",
   "unit.min": "мин",
   "unit.h": "ч",
   "err.not_member": "Плейлисты этого чата доступны только его участникам. Бот всё ещё в чате?",
@@ -182,7 +197,6 @@ const ru = {
   "err.too_many": "Слишком много треков за раз.",
   "err.limit": "Достигнут лимит плейлистов для чата.",
   "err.generic": "Что-то пошло не так. Попробуйте ещё раз.",
-  "err.not_admin": "Импортировать историю могут только администраторы чата.",
   "err.protected": "В этом чате запрещена пересылка, поэтому историю импортировать нельзя.",
 };
 
@@ -280,6 +294,7 @@ const en: Record<Key, string> = {
   "toast.alreadyIn": "Already in “{title}”",
   "confirm.delete": "Delete “{title}”? This can't be undone.",
   "playlist.stop": "Stop",
+  "playlist.loadingMore": "Loading the rest of the tracks… The ones here can already play.",
   "playlist.shuffleAllHint": "Play all your music in random order",
   "all.title": "All music",
   "all.description": "Every track from all your playlists, groups and channels. Each track once.",
@@ -315,7 +330,7 @@ const en: Record<Key, string> = {
     "• “Play” starts a playlist. While it plays, the button reads “Stop”.\n• Tap a track to play it, tap it again to pause.\n• “Shuffle” on a playlist saves a new order (the same artist never plays twice in a row). The shuffle button in the player below plays in random order without changing the playlist.\n• Tapehouse remembers where you stopped, even on another device.\n• Files over 20 MB can't play here (a Telegram limit). Use “Send to chat” and the bot sends them for Telegram's own player.",
   "info.groupsTitle": "Groups and channels",
   "info.groupsBody":
-    "• Add {bot} as an admin right away. A bot can't join a channel as a regular subscriber: Telegram doesn't allow it, and the bot wouldn't see the posts.\n• Channel: channel settings → Administrators → Add admin → find {bot}. Every new audio post goes into the channel's shared playlist by itself.\n• Group: add the bot as an admin too. Reply /save@{botName} to a track to add it to the group playlist, /inbox@{botName} to save it to your own Inbox. /playlists@{botName} posts a button with the playlists.\n• “Import all music” adds what was posted earlier. Only admins can import, and it doesn't work in chats that forbid forwarding.\n• A group or channel shows up here by itself when you're a member. To remove it: “⋯” on its playlist → “Hide this group from my list”.\n• All members can see and edit shared playlists. Their tracks don't go to your Inbox, but they are in All music.",
+    "• Add {bot} as an admin right away. A bot can't join a channel as a regular subscriber: Telegram doesn't allow it, and the bot wouldn't see the posts.\n• Channel: channel settings → Administrators → Add admin → find {bot}. Every new audio post goes into the channel's shared playlist by itself.\n• Group: add the bot as an admin too. Reply /save@{botName} to a track to add it to the group playlist, /inbox@{botName} to save it to your own Inbox. /playlists@{botName} posts a button with the playlists.\n• “Import all music” adds what was posted earlier. Any member can import (only the bot has to be an admin); it doesn't work in chats that forbid forwarding.\n• A group or channel shows up here by itself when you're a member. To remove it: “⋯” on its playlist → “Hide this group from my list”.\n• All members can see and edit shared playlists. Their tracks don't go to your Inbox, but they are in All music.",
   "info.otherTitle": "Other",
   "info.otherBody":
     "• RU / EN at the top switches the language.\n• If something doesn't load, close and reopen Tapehouse.",
@@ -337,6 +352,20 @@ const en: Record<Key, string> = {
   "err.download_failed": "Couldn't download this track. Try another one.",
   "unit.track": "track|tracks|tracks",
   "unit.newTrack": "new track|new tracks|new tracks",
+  "unit.song": "song|songs|songs",
+  "unit.copy": "extra copy|extra copies|extra copies",
+  "sheet.duplicates": "Find duplicates",
+  "dupes.title": "Duplicates",
+  "dupes.loading": "This playlist is still loading. Check again once all its tracks are in.",
+  "dupes.none": "No duplicates found.",
+  "dupes.close": "Done",
+  "dupes.found": "{songs} repeat, {copies} in total. A duplicate is the same file, or the same title and artist (ignoring case). Ticked tracks get removed; the first copy stays.",
+  "dupes.allNote": "In All music, removing a track takes it out of every playlist it's in, including shared group and channel playlists.",
+  "dupes.keep": "keep",
+  "dupes.remove": "remove",
+  "dupes.removeSelected": "Remove ticked ({count})",
+  "dupes.keepAll": "Keep all",
+  "toast.dupesRemoved": "Duplicates removed: {count}",
   "unit.min": "min",
   "unit.h": "h",
   "err.not_member": "Only members of this chat can open its playlists. Is the bot still there?",
@@ -349,7 +378,6 @@ const en: Record<Key, string> = {
   "err.too_many": "Too many tracks at once.",
   "err.limit": "This chat has reached its playlist limit.",
   "err.generic": "Something went wrong. Try again.",
-  "err.not_admin": "Only admins of this chat can import its history.",
   "err.protected": "This chat doesn't allow forwarding, so its history can't be imported.",
 };
 
@@ -369,7 +397,7 @@ function translate(lang: Lang): T {
 
 /** "5 треков" / "5 tracks". `unitKey` holds "one|few|many" forms. */
 function makeCount(lang: Lang, t: T) {
-  return (count: number, unitKey: "unit.track" | "unit.newTrack") => {
+  return (count: number, unitKey: "unit.track" | "unit.newTrack" | "unit.song" | "unit.copy") => {
     const forms = t(unitKey).split("|") as [string, string, string];
     const word = lang === "ru" ? pluralRu(count, forms) : count === 1 ? forms[0] : forms[1];
     return `${count} ${word}`;

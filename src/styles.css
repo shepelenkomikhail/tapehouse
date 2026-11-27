@@ -895,20 +895,48 @@ p {
   }
 }
 
-/* ---------- Header actions / language ---------- */
+/* ---------- Home header: title, greeting + language, main actions ---------- */
 
 .home__header {
-  flex-wrap: wrap;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 16px 16px 14px;
 }
 
-.home__title {
+.home__top,
+.home__greeting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
 }
 
+.home__top {
+  margin-right: -8px; /* line the info icon up with the language switch below */
+}
+
+.home__greeting p {
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .home__actions {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
+  margin-top: 12px;
+}
+
+.home__actions .button {
+  min-height: 42px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .lang-switch {
@@ -918,9 +946,13 @@ p {
   background: var(--bg-secondary);
 }
 
+.lang-switch {
+  flex: none;
+}
+
 .lang-switch__option {
   min-width: 36px;
-  height: 34px;
+  height: 30px;
   padding: 0 8px;
   border: 0;
   border-radius: 8px;
@@ -1226,4 +1258,45 @@ p {
   width: 18px;
   height: 18px;
   border-width: 2px;
+}
+
+/* Big playlists render rows as you scroll; this marks where more get added. */
+.tracks__more {
+  height: 1px;
+}
+
+.tracks__loading {
+  text-align: center;
+  padding: 12px 0;
+}
+
+/* ---------- Duplicates sheet ---------- */
+
+.button--danger {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.dupes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dupes__group {
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.dupes__tag {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--hint);
+}
+
+.dupes__tag--remove {
+  color: var(--danger);
 }

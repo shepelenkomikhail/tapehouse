@@ -125,10 +125,14 @@ export function usePlayer(resolve: (ref: PlaylistRef) => Playlist | undefined) {
     if (!stateRef.current.shuffle || !order || order.key !== refKey(source)) {
       return playlist.tracks;
     }
-    const byId = new Map(playlist.tracks.map((track) => [track.id, track]));
-    const inOrder = order.ids.map((id) => byId.get(id)).filter((track): track is Track => Boolean(track));
     const listed = new Set(order.ids);
-    return [...inOrder, ...playlist.tracks.filter((track) => !listed.has(track.id))];
+    const added = playlist.tracks.filter((track) => !listed.has(track.id));
+    if (added.length > 0) {
+      // Tracks that arrived later (e.g. a big playlist still loading) join the random order too.
+      order.ids = [...order.ids, ...smartShuffle(added).map((track) => track.id)];
+    }
+    const byId = new Map(playlist.tracks.map((track) => [track.id, track]));
+    return order.ids.map((id) => byId.get(id)).filter((track): track is Track => Boolean(track));
   }, []);
 
   const getAudio = useCallback(() => {

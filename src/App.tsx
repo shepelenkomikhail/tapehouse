@@ -8,6 +8,8 @@ import { ImportSheet } from "./components/ImportSheet";
 import { FindMusicSheet } from "./components/FindMusicSheet";
 import { InfoSheet } from "./components/InfoSheet";
 import { MergeSheet, type PlaylistChoice } from "./components/MergeSheet";
+import { DuplicatesSheet } from "./components/DuplicatesSheet";
+import { fileKey } from "./lib/duplicates";
 import { PlayerBar } from "./components/PlayerBar";
 import { PlaylistScreen } from "./components/PlaylistScreen";
 import { Sheet, SheetButton } from "./components/Sheet";
@@ -15,7 +17,15 @@ import { ALL_REF, sameRef, usePlayer, type PlaylistRef } from "./hooks/usePlayer
 import { api, ApiError } from "./lib/api";
 import { cloudSelfTest, isSyncedStorage } from "./lib/cloud-storage";
 import { DEFAULT_INBOX_DESCRIPTIONS, DEFAULT_INBOX_TITLES, errorMessage, useI18n } from "./lib/i18n";
-import { loadLibrary, mergeInbox, persistLibrary, type PersonalLibrary } from "./lib/library";
+import {
+  collectLibraryGarbage,
+  createPlaylistLoader,
+  loadLibraryIndex,
+  mergeInbox,
+  persistLibrary,
+  type PersonalLibrary,
+  type PlaylistLoader,
+} from "./lib/library";
 import { confirmAction, getStartParam, getWebApp, haptic, initTelegram, openBotChat } from "./lib/telegram";
 
 type Target = { kind: "personal" } | { kind: "group"; chatId: string };
@@ -25,6 +35,7 @@ type SheetState =
   | { type: "playlist"; ref: PlaylistRef }
   | { type: "copyAll"; ref: PlaylistRef }
   | { type: "merge"; ref: PlaylistRef }
+  | { type: "duplicates"; ref: PlaylistRef }
   | { type: "rename"; ref: PlaylistRef }
   | { type: "import"; chatId: string }
   | { type: "info" }
@@ -55,6 +66,9 @@ export default function App() {
   const [sheet, setSheet] = useState<SheetState | null>(null);
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** Personal playlists whose tracks are still arriving from CloudStorage. */
+  const [loadingIds, setLoadingIds] = useState<ReadonlySet<string>>(new Set());
+  const loaderRef = useRef<PlaylistLoader | null>(null);
 
   const notify = useCallback((text: string, error = false) => {
     setToast({ text, error });
@@ -113,6 +127,8 @@ export default function App() {
     [library, groups, allMusic],
   );
 
+  const resolveRef = useRef(resolve);
+  resolveRef.current = resolve;
   const player = usePlayer(resolve);
 
   /** Replace the personal library and persist the difference to Telegram CloudStorage. */
@@ -179,6 +195,10 @@ export default function App() {
   const runOp = useCallback(
     async (target: Target, op: PlaylistOp): Promise<Playlist[] | null> => {
       if (target.kind === "personal") {
+        // Edits that change a playlist's tracks need all of them, or saving would drop the rest.
+        if (op.op !== "createPlaylist" && op.op !== "updatePlaylist" && op.op !== "deletePlaylist") {
+          await loaderRef.current?.whenLoaded(op.playlistId);
+        }
         const current = libraryRef.current;
         if (!current) {
           return null;
@@ -196,7 +216,7 @@ export default function App() {
 
       const group = groupsRef.current[target.chatId];
       // Optimistic update for edits whose result we can predict exactly.
-      if (group && (op.op === "reorder" || op.op === "sortByAdded" || op.op === "removeTrack" || op.op === "updatePlaylist")) {
+      if (group && (op.op === "reorder" || op.op === "sortByAdded" || op.op === "removeTrack" || op.op === "removeTracks" || op.op === "updatePlaylist")) {
         try {
           setGroup(target.chatId, { playlists: applyPlaylistOp(group.playlists, op) });
         } catch {
@@ -225,6 +245,15 @@ export default function App() {
     return target ? runOp(target, op) : Promise.resolve(null);
   };
 
+  /** Waits until these playlists' tracks are fully loaded ("All music" waits for every playlist). */
+  const whenRefsLoaded = (refs: PlaylistRef[]) => {
+    const loader = loaderRef.current;
+    const ids = refs.flatMap((ref) =>
+      ref.kind === "personal" ? [ref.playlistId] : ref.kind === "all" ? (libraryRef.current?.playlists ?? []).map((p) => p.id) : [],
+    );
+    return loader ? Promise.all(ids.map((id) => loader.whenLoaded(id))).then(() => undefined) : Promise.resolve();
+  };
+
   // ---------- Startup ----------
 
   const started = useRef(false);
@@ -237,9 +266,13 @@ export default function App() {
     initTelegram();
 
     (async () => {
+      // The session request doesn't touch CloudStorage, so it runs while the library loads.
+      const inboxRequest = api.getInbox();
+      inboxRequest.catch(() => undefined);
+
       let lib: PersonalLibrary;
       try {
-        lib = await loadLibrary();
+        lib = await loadLibraryIndex();
       } catch (error) {
         setFatal(`${tRef.current("app.cantLoad")} ${errorText(error)}`);
         return;
@@ -247,10 +280,46 @@ export default function App() {
       libraryRef.current = lib;
       setLibrary(lib);
 
+      // Tracks arrive in the background; the app is usable meanwhile.
+      const ids = lib.playlists.map((playlist) => playlist.id);
+      setLoadingIds(new Set(ids));
+      loaderRef.current = createPlaylistLoader(
+        ids,
+        (playlistId, tracks, done) => {
+          const current = libraryRef.current;
+          if (current && current.playlists.some((playlist) => playlist.id === playlistId)) {
+            const next = {
+              ...current,
+              playlists: current.playlists.map((playlist) =>
+                playlist.id === playlistId ? { ...playlist, tracks } : playlist,
+              ),
+            };
+            libraryRef.current = next;
+            setLibrary(next);
+          }
+          if (done) {
+            setLoadingIds((currentIds) => {
+              const nextIds = new Set(currentIds);
+              nextIds.delete(playlistId);
+              return nextIds;
+            });
+          }
+        },
+        (error) => notify(`${tRef.current("app.cantLoad")} ${errorText(error)}`, true),
+        () => {
+          if (libraryRef.current) {
+            collectLibraryGarbage(libraryRef.current);
+          }
+        },
+      );
+      if (lib.inboxId) {
+        loaderRef.current.prioritize(lib.inboxId);
+      }
+
       let inbox: Track[] = [];
       let sharedChats: { chatId: string; title: string }[] = [];
       try {
-        const response = await api.getInbox();
+        const response = await inboxRequest;
         setSession({ user: response.user, botUsername: response.botUsername });
         inbox = response.inbox;
         sharedChats = response.sharedChats ?? [];
@@ -266,6 +335,10 @@ export default function App() {
       }
 
       if (inbox.length > 0) {
+        // Adding to the Inbox needs its existing tracks first (to skip duplicates and keep them all).
+        if (libraryRef.current?.inboxId) {
+          await loaderRef.current.whenLoaded(libraryRef.current.inboxId);
+        }
         const merged = mergeInbox(libraryRef.current!, inbox, {
           title: tRef.current("inbox.title"),
           description: tRef.current("inbox.description"),
@@ -419,8 +492,9 @@ export default function App() {
     if (!view) {
       return;
     }
-    if (view.kind === "all") {
-      // Can't be reordered: play everything in a random order instead.
+    if (view.kind === "all" || (view.kind === "personal" && loadingIds.has(view.playlistId))) {
+      // "All music" can't be reordered, and a playlist still loading can't be saved yet:
+      // play the tracks in a random order instead (ones that arrive later join the queue).
       haptic.select();
       player.playShuffled(view);
       return;
@@ -479,15 +553,21 @@ export default function App() {
   /** Copies every track of one playlist into another, skipping ones already there. */
   const addAllTo = async (source: PlaylistRef, destination: PlaylistRef) => {
     setSheet(null);
-    const tracks = resolve(source)?.tracks ?? [];
     const target = targetOf(destination);
-    if (tracks.length === 0 || !target) {
+    if (!target) {
       return;
     }
-    const before = resolve(destination)?.tracks.length ?? 0;
+    setBusy("copyAll");
+    await whenRefsLoaded([source, destination]);
+    // Read through the ref: `resolve` from this render predates the tracks that just loaded.
+    const tracks = resolveRef.current(source)?.tracks ?? [];
+    const before = resolveRef.current(destination)?.tracks.length ?? 0;
+    if (tracks.length === 0) {
+      setBusy(null);
+      return;
+    }
     const batch = target.kind === "group" ? GROUP_BATCH : tracks.length;
     let result: Playlist[] | null = null;
-    setBusy("copyAll");
     for (let start = 0; start < tracks.length; start += batch) {
       result = await runOp(target, {
         op: "addTracks",
@@ -512,8 +592,10 @@ export default function App() {
   };
 
   /** Creates a new personal playlist with the tracks of all picked playlists, each file once. */
-  const mergePlaylists = (refs: PlaylistRef[], title: string) => {
+  const mergePlaylists = async (refs: PlaylistRef[], title: string) => {
     setSheet(null);
+    await whenRefsLoaded(refs);
+    const resolve = resolveRef.current;
     const current = libraryRef.current;
     if (!current) {
       return;
@@ -539,6 +621,51 @@ export default function App() {
       notify(t("toast.merged", { title: merged.title, count: count(tracks.length, "unit.track") }));
     } catch (error) {
       notify(error instanceof PlaylistOpError ? error.message : errorText(error), true);
+    }
+  };
+
+  /**
+   * Removes the picked copies. In a real playlist that's those tracks; in "All music" (built from
+   * every playlist) each picked file is removed from every playlist that holds it.
+   */
+  const removeDuplicates = async (ref: PlaylistRef, tracks: Track[]) => {
+    setSheet(null);
+    const removals: { ref: PlaylistRef; ids: string[] }[] = [];
+    if (ref.kind === "all") {
+      const files = new Set(tracks.map(fileKey));
+      const sources: PlaylistRef[] = [
+        ...(libraryRef.current?.playlists ?? []).map((p) => ({ kind: "personal", playlistId: p.id }) as PlaylistRef),
+        ...Object.values(groupsRef.current).flatMap((group) =>
+          group.status === "ready"
+            ? group.playlists.map((p) => ({ kind: "group", chatId: group.chatId, playlistId: p.id }) as PlaylistRef)
+            : [],
+        ),
+      ];
+      for (const source of sources) {
+        const ids = (resolveRef.current(source)?.tracks ?? []).filter((track) => files.has(fileKey(track))).map((track) => track.id);
+        if (ids.length > 0) {
+          removals.push({ ref: source, ids });
+        }
+      }
+    } else {
+      removals.push({ ref, ids: tracks.map((track) => track.id) });
+    }
+
+    const removedIds = new Set(removals.flatMap((removal) => removal.ids));
+    const playing = player.state.track;
+    if (playing && removedIds.has(playing.id)) {
+      player.stop();
+    }
+    setBusy("dupes");
+    let ok = true;
+    for (const removal of removals) {
+      const result = await runOpOn(removal.ref, { op: "removeTracks", playlistId: removal.ref.playlistId, trackIds: removal.ids });
+      ok = ok && result !== null;
+    }
+    setBusy(null);
+    if (ok) {
+      haptic.success();
+      notify(t("toast.dupesRemoved", { count: String(tracks.length) }));
     }
   };
 
@@ -609,8 +736,12 @@ export default function App() {
           groups={groupList}
           selected={view}
           nowPlaying={player.state.track ? player.state.source : null}
+          loadingIds={loadingIds}
           onOpen={(ref) => {
             haptic.select();
+            if (ref.kind === "personal") {
+              loaderRef.current?.prioritize(ref.playlistId);
+            }
             setView(ref);
           }}
           onCreate={(target, title) => void createPlaylist(target, title)}
@@ -637,6 +768,7 @@ export default function App() {
                   : current.description
             }
             readOnly={isAll(view)}
+            loading={view.kind === "personal" ? loadingIds.has(view.playlistId) : view.kind === "all" && loadingIds.size > 0}
             emptyText={isAll(view) ? t("all.empty") : undefined}
             playingHere={playingHere}
             context={currentContext}
@@ -773,6 +905,13 @@ export default function App() {
           >
             {t("sheet.addAllTo")}
           </SheetButton>
+          <SheetButton
+            icon={<Icon name="copy" />}
+            disabled={(resolve(sheet.ref)?.tracks.length ?? 0) < 2}
+            onClick={() => setSheet({ type: "duplicates", ref: sheet.ref })}
+          >
+            {t("sheet.duplicates")}
+          </SheetButton>
           {isAll(sheet.ref) ? null : (
             <SheetButton icon={<Icon name="merge" />} onClick={() => setSheet({ type: "merge", ref: sheet.ref })}>
               {t("sheet.merge")}
@@ -842,7 +981,22 @@ export default function App() {
           choices={copyTargets}
           initial={sheet.ref}
           onClose={() => setSheet(null)}
-          onMerge={mergePlaylists}
+          onMerge={(refs, title) => void mergePlaylists(refs, title)}
+        />
+      ) : null}
+
+      {sheet?.type === "duplicates" ? (
+        <DuplicatesSheet
+          tracks={resolve(sheet.ref)?.tracks ?? []}
+          subtitle={titleOf(sheet.ref)}
+          note={isAll(sheet.ref) ? t("dupes.allNote") : undefined}
+          loading={
+            sheet.ref.kind === "personal"
+              ? loadingIds.has(sheet.ref.playlistId)
+              : sheet.ref.kind === "all" && loadingIds.size > 0
+          }
+          onClose={() => setSheet(null)}
+          onRemove={(tracks) => void removeDuplicates(sheet.ref, tracks)}
         />
       ) : null}
 
@@ -855,7 +1009,11 @@ export default function App() {
             }
           }}
           onError={(text) => notify(text, true)}
-          onAdded={(track) => {
+          onAdded={async (track) => {
+            const inboxId = libraryRef.current?.inboxId;
+            if (inboxId) {
+              await loaderRef.current?.whenLoaded(inboxId);
+            }
             const current = libraryRef.current;
             if (!current) {
               return;

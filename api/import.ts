@@ -9,6 +9,7 @@ import { HttpError, queryParam, requireUser, route } from "./_lib/http.js";
  * POST ?chat=ID { from, misses } → scans one batch of a channel's (or group's) post history.
  *
  * The Bot API can't list old posts, but a bot that's an admin can forward any post by its number.
+ * Any member of the chat can start it.
  * Each post is forwarded silently into the caller's chat with the bot (that returns the full message,
  * including the audio file_id) and the copy is deleted right away. Audio found is added to the
  * chat's shared playlist in posting order. The Mini App calls this repeatedly until `done`.
@@ -48,9 +49,11 @@ export default route(["POST"], async (request) => {
     throw new HttpError(400, "Invalid request.");
   }
 
+  // Any member may import: members already see every post, and shared playlists are open to all
+  // of them. Only the bot has to be an admin (that's what lets it forward old posts).
   const membership = await checkChatMember(chatId, user.id);
-  if (!membership.ok || !membership.admin) {
-    throw new HttpError(403, "Only admins of this chat can import its history.", "not_admin");
+  if (!membership.ok) {
+    throw new HttpError(403, "Only members of this chat can import its history.", "not_member");
   }
 
   // A chat with "restrict saving content" can't be forwarded from at all. Check once up front:

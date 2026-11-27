@@ -151,12 +151,61 @@ function parseHeader(value: string | undefined) {
 
 const headers = new Map<string, { generation: number; count: number } | null>();
 
+/** Reads the headers of many documents in one go, so their sizes are known before loading them. */
+export async function prefetchHeaders(names: string[]) {
+  const unknown = names.filter((name) => !headers.has(name));
+  if (unknown.length === 0) {
+    return;
+  }
+  const values = await kv.get(unknown);
+  for (const name of unknown) {
+    headers.set(name, parseHeader(values[name]));
+  }
+}
+
+/** How many storage values a document takes (0 if it doesn't exist), once its header is known. */
+export function docChunkCount(name: string) {
+  return headers.get(name)?.count ?? 0;
+}
+
+/**
+ * Loads one document a few chunks at a time, handing over the text read so far after each step,
+ * so a big document can be shown (partly) long before it's fully read.
+ */
+export async function loadDocText(
+  name: string,
+  onText: (text: string, done: boolean) => void,
+  steps: number[] = [6, 50],
+) {
+  await prefetchHeaders([name]);
+  const header = headers.get(name);
+  if (!header) {
+    onText("", true);
+    return;
+  }
+  let text = "";
+  let index = 0;
+  let step = 0;
+  while (index < header.count) {
+    const size = steps[Math.min(step, steps.length - 1)];
+    step += 1;
+    const keys = Array.from({ length: Math.min(size, header.count - index) }, (_, i) =>
+      chunkKey(name, header.generation, index + i),
+    );
+    const values = await kv.get(keys);
+    for (const key of keys) {
+      text += values[key] ?? "";
+    }
+    index += keys.length;
+    onText(text, index >= header.count);
+  }
+}
+
 export async function loadDocs<T>(names: string[]): Promise<Record<string, T | null>> {
-  const headerValues = await kv.get(names);
+  await prefetchHeaders(names);
   const wanted: string[] = [];
   for (const name of names) {
-    const header = parseHeader(headerValues[name]);
-    headers.set(name, header);
+    const header = headers.get(name);
     if (header) {
       for (let i = 0; i < header.count; i += 1) {
         wanted.push(chunkKey(name, header.generation, i));

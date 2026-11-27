@@ -68,6 +68,7 @@ export type PlaylistOp =
   | { op: "shuffle"; playlistId: string }
   | { op: "sortByAdded"; playlistId: string; order: "newest" | "oldest" }
   | { op: "removeTrack"; playlistId: string; trackId: string }
+  | { op: "removeTracks"; playlistId: string; trackIds: string[] }
   | { op: "addTracks"; playlistId: string; tracks: Track[] };
 
 /** Where "Find music" looks. Only catalogs whose authors allow downloading are used. */

@@ -1,6 +1,15 @@
 import { appendUniqueTracks, createPlaylist } from "../../shared/playlist-ops";
 import type { Playlist, Track } from "../../shared/types";
-import { collectGarbage, deleteDoc, loadDocs, markNewDoc, saveDoc } from "./cloud-storage";
+import {
+  collectGarbage,
+  deleteDoc,
+  docChunkCount,
+  loadDocs,
+  loadDocText,
+  markNewDoc,
+  prefetchHeaders,
+  saveDoc,
+} from "./cloud-storage";
 
 /**
  * Personal library persisted in Telegram CloudStorage.
@@ -51,21 +60,198 @@ const unpack = (c: CompactTrack): Track => ({
 
 const docName = (playlistId: string) => `pl_${playlistId}`;
 
-export async function loadLibrary(): Promise<PersonalLibrary> {
+/**
+ * Reads only the library index (playlist names, order, groups) plus the size of every playlist.
+ * Tracks come later from `createPlaylistLoader`, so the app opens without waiting for big playlists.
+ * Every playlist starts with an empty track list and stays "loading" until its loader reports done.
+ */
+export async function loadLibraryIndex(): Promise<PersonalLibrary> {
   const { lib } = await loadDocs<LibDoc>(["lib"]);
   if (!lib) {
     return { playlists: [], inboxId: null, groups: [], hiddenGroups: [] };
   }
+  await prefetchHeaders(lib.playlists.map((playlist) => docName(playlist.id)));
+  return {
+    playlists: lib.playlists.map((meta) => ({ ...meta, tracks: [] })),
+    inboxId: lib.inboxId,
+    groups: lib.groups ?? [],
+    hiddenGroups: lib.hiddenGroups ?? [],
+  };
+}
 
-  const names = lib.playlists.map((playlist) => docName(playlist.id));
-  const docs = await loadDocs<CompactTrack[]>(names);
-  const playlists = lib.playlists.map((meta) => ({
-    ...meta,
-    tracks: (docs[docName(meta.id)] ?? []).map(unpack),
-  }));
+/**
+ * Parses as many whole tracks as the text read so far holds. The document is a JSON array of
+ * arrays (`[[...],[...],...]`); this finds the end of the last complete inner array.
+ */
+function parsePartialTracks(text: string): CompactTrack[] {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let lastEnd = -1;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+    } else if (char === '"') {
+      inString = true;
+    } else if (char === "[") {
+      depth += 1;
+    } else if (char === "]") {
+      depth -= 1;
+      if (depth === 1) {
+        lastEnd = i;
+      }
+    }
+  }
+  if (lastEnd < 0) {
+    return [];
+  }
+  try {
+    return JSON.parse(`${text.slice(0, lastEnd + 1)}]`) as CompactTrack[];
+  } catch {
+    return [];
+  }
+}
 
-  void collectGarbage(["lib", ...names]).catch(() => undefined);
-  return { playlists, inboxId: lib.inboxId, groups: lib.groups ?? [], hiddenGroups: lib.hiddenGroups ?? [] };
+function parseTracks(text: string): Track[] {
+  if (!text) {
+    return [];
+  }
+  try {
+    return (JSON.parse(text) as CompactTrack[]).map(unpack);
+  } catch {
+    console.warn("Tapehouse: a playlist document is unreadable");
+    return [];
+  }
+}
+
+/** Documents up to this many storage values load in one request; bigger ones arrive in parts. */
+const SMALL_DOC_CHUNKS = 8;
+/** Most storage values asked for in one batch of small playlists. */
+const BATCH_CHUNKS = 40;
+
+export interface PlaylistLoader {
+  /** Load this playlist next (e.g. the user just opened it). */
+  prioritize(playlistId: string): void;
+  /** Resolves once the playlist's tracks are fully loaded (right away if they already are). */
+  whenLoaded(playlistId: string): Promise<void>;
+  isLoaded(playlistId: string): boolean;
+}
+
+/**
+ * Loads playlists' tracks in the background: the one asked for first, then the rest smallest
+ * first, so most playlists are ready almost at once. A big playlist is handed over in parts
+ * (`done` false) so its first tracks can be played while the rest still loads.
+ */
+export function createPlaylistLoader(
+  playlistIds: string[],
+  apply: (playlistId: string, tracks: Track[], done: boolean) => void,
+  onError: (error: unknown) => void,
+  onAllLoaded: () => void,
+): PlaylistLoader {
+  const queue = [...playlistIds].sort((a, b) => docChunkCount(docName(a)) - docChunkCount(docName(b)));
+  const loaded = new Set<string>();
+  const waiters = new Map<string, (() => void)[]>();
+  let reportedError = false;
+  let running = false;
+
+  const finish = (id: string) => {
+    loaded.add(id);
+    waiters.get(id)?.forEach((resolve) => resolve());
+    waiters.delete(id);
+  };
+
+  const nextBatch = () => {
+    const first = queue.shift()!;
+    const batch = [first];
+    let chunks = docChunkCount(docName(first));
+    if (chunks > SMALL_DOC_CHUNKS) {
+      return batch;
+    }
+    while (queue.length > 0) {
+      const size = docChunkCount(docName(queue[0]));
+      if (size > SMALL_DOC_CHUNKS || chunks + size > BATCH_CHUNKS) {
+        break;
+      }
+      chunks += size;
+      batch.push(queue.shift()!);
+    }
+    return batch;
+  };
+
+  const run = async () => {
+    if (running) {
+      return;
+    }
+    running = true;
+    while (queue.length > 0) {
+      const batch = nextBatch();
+      try {
+        if (batch.length === 1 && docChunkCount(docName(batch[0])) > SMALL_DOC_CHUNKS) {
+          const id = batch[0];
+          await loadDocText(docName(id), (text, done) => {
+            if (done) {
+              apply(id, parseTracks(text), true);
+            } else {
+              apply(id, parsePartialTracks(text).map(unpack), false);
+            }
+          });
+          finish(id);
+        } else {
+          const docs = await loadDocs<CompactTrack[]>(batch.map(docName));
+          for (const id of batch) {
+            apply(id, (docs[docName(id)] ?? []).map(unpack), true);
+            finish(id);
+          }
+        }
+      } catch (error) {
+        if (!reportedError) {
+          reportedError = true;
+          onError(error);
+        }
+        // Try again later; until then these playlists stay "loading" and can't be edited.
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        queue.push(...batch.filter((id) => !loaded.has(id)));
+      }
+    }
+    running = false;
+    onAllLoaded();
+  };
+
+  void run();
+
+  return {
+    prioritize(playlistId) {
+      const index = queue.indexOf(playlistId);
+      if (index > 0) {
+        queue.splice(index, 1);
+        queue.unshift(playlistId);
+      }
+    },
+    whenLoaded(playlistId) {
+      if (loaded.has(playlistId) || !playlistIds.includes(playlistId)) {
+        return Promise.resolve();
+      }
+      this.prioritize(playlistId);
+      return new Promise<void>((resolve) => {
+        waiters.set(playlistId, [...(waiters.get(playlistId) ?? []), resolve]);
+      });
+    },
+    isLoaded(playlistId) {
+      return loaded.has(playlistId) || !playlistIds.includes(playlistId);
+    },
+  };
+}
+
+/** Removes storage leftovers once everything is loaded; reads the library as it is now. */
+export function collectLibraryGarbage(library: PersonalLibrary) {
+  void collectGarbage(["lib", ...library.playlists.map((playlist) => docName(playlist.id))]).catch(() => undefined);
 }
 
 /**

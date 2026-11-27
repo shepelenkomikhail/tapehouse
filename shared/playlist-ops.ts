@@ -251,6 +251,11 @@ export function applyPlaylistOp(playlists: Playlist[], op: PlaylistOp): Playlist
         updatedAt: now,
       };
       break;
+    case "removeTracks": {
+      const remove = new Set(op.trackIds);
+      next = { ...current, tracks: current.tracks.filter((track) => !remove.has(track.id)), updatedAt: now };
+      break;
+    }
     case "addTracks":
       next = { ...appendUniqueTracks(current, op.tracks).playlist, updatedAt: now };
       break;
