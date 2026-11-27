@@ -220,7 +220,6 @@ p {
   text-align: left;
 }
 
-.list-item:hover,
 .list-item--active {
   background: var(--hover);
 }
@@ -344,10 +343,6 @@ p {
   color: var(--hint);
 }
 
-.icon-button:hover {
-  background: var(--hover);
-  color: var(--text);
-}
 
 .input {
   width: 100%;
@@ -511,9 +506,6 @@ p {
   border-radius: 10px;
 }
 
-.track__main:hover {
-  background: var(--hover);
-}
 
 .track__index {
   flex: none;
@@ -794,9 +786,6 @@ p {
   color: var(--hint);
 }
 
-.sheet-button:hover {
-  background: var(--hover);
-}
 
 .sheet-button small {
   color: var(--hint);
@@ -1115,9 +1104,6 @@ p {
   cursor: pointer;
 }
 
-.check-item:hover {
-  background: var(--hover);
-}
 
 .check-item input {
   flex: none;
@@ -1299,4 +1285,20 @@ p {
 
 .dupes__tag--remove {
   color: var(--danger);
+}
+
+/* Hover highlights only for a real mouse. On touch screens a tapped row would keep the hover
+   color until the next tap elsewhere, which looks like the app froze. */
+@media (hover: hover) and (pointer: fine) {
+  .list-item:hover,
+  .track__main:hover,
+  .sheet-button:hover,
+  .check-item:hover {
+    background: var(--hover);
+  }
+
+  .icon-button:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
 }
