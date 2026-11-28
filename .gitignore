@@ -9,3 +9,7 @@ _backup
 # secrets (local env files)
 .env*
 !.env.example
+
+# local tooling
+.claude/
+bun.lockb
